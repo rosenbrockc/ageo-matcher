@@ -195,6 +195,11 @@ def publish_provider_catalog(
 
     inventory = derive_seed_inventory(base_dir=workspace_root)
     if not apply:
+        from sciona.services.skeleton_catalog_sync import load_skeleton_artifact_bundles
+
+        artifact_bundles = load_skeleton_artifact_bundles(
+            workspace_root=workspace_root
+        )
         return {
             "seed": seed_core_supabase(
                 object(),
@@ -203,6 +208,11 @@ def publish_provider_catalog(
             ),
             "backfill": {"status": "not_run"},
             "embeddings": {"status": "not_run"},
+            "artifacts": {
+                "status": "dry_run",
+                "count": len(artifact_bundles),
+                "fqdns": [bundle.artifact["fqdn"] for bundle in artifact_bundles],
+            },
         }
 
     client = supabase or create_supabase_client_from_env()
@@ -228,6 +238,59 @@ def publish_provider_catalog(
         raise RuntimeError(f"Provider publication backfills reported errors: {details}")
     if include_backfills:
         _validate_audit_inventory_coverage(result["seed"], result["backfill"])
+    from sciona.atoms.supabase_seed import sync_artifact_benchmark_rows
+    from sciona.services.skeleton_catalog_sync import (
+        load_skeleton_artifact_bundles,
+        sync_bundle_to_supabase,
+    )
+
+    artifact_bundles = load_skeleton_artifact_bundles(
+        workspace_root=workspace_root
+    )
+    for bundle in artifact_bundles:
+        sync_bundle_to_supabase(client, bundle)
+    result["artifact_benchmarks"] = sync_artifact_benchmark_rows(
+        client,
+        inventory,
+    )
+    # Re-enrich after benchmark attachment so trust readiness is computed from
+    # the complete atom, binding, audit, and representative benchmark record.
+    for bundle in artifact_bundles:
+        sync_bundle_to_supabase(client, bundle)
+    artifact_fqdns = [bundle.artifact["fqdn"] for bundle in artifact_bundles]
+    artifact_states = (
+        client.table("artifacts")
+        .select("artifact_id,fqdn,status,is_publishable,verified_leaf_coverage")
+        .in_("fqdn", artifact_fqdns)
+        .execute()
+        .data
+        or []
+    )
+    rollup_states = (
+        client.table("artifact_audit_rollups")
+        .select("artifact_id,trust_readiness,trust_blockers")
+        .in_("artifact_id", [row["artifact_id"] for row in artifact_states])
+        .execute()
+        .data
+        or []
+    )
+    rollups_by_id = {str(row["artifact_id"]): row for row in rollup_states}
+    result["artifacts"] = {
+        "count": len(artifact_bundles),
+        "fqdns": artifact_fqdns,
+        "states": [
+            {
+                **row,
+                "trust_readiness": rollups_by_id.get(
+                    str(row["artifact_id"]), {}
+                ).get("trust_readiness", ""),
+                "trust_blockers": rollups_by_id.get(
+                    str(row["artifact_id"]), {}
+                ).get("trust_blockers", []),
+            }
+            for row in sorted(artifact_states, key=lambda item: str(item["fqdn"]))
+        ],
+    }
     result["embeddings"] = (
         refresh_catalog_embeddings(client, openai_client=openai_client)
         if include_embeddings

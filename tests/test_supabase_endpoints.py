@@ -270,6 +270,55 @@ async def test_catalog_search_supabase_uses_phase6_rpc(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_catalog_atom_uses_exact_served_lookup() -> None:
+    fqdn = "sciona.atoms.signal.ops.peak_correction"
+
+    def table_handler(query: FakeQuery) -> FakeResult:
+        if query.name == "atoms":
+            assert ("eq", "fqdn", fqdn) in query.filters
+            assert ("eq", "is_publishable", True) in query.filters
+            assert query.limit_value == 1
+            return FakeResult(
+                data=[
+                    {
+                        "fqdn": fqdn,
+                        "description": "Correct detected peaks",
+                        "domain_tags": ["signal"],
+                        "source_repo_id": "signal-repo",
+                        "import_module": "sciona.atoms.signal.ops",
+                        "namespace_root": "sciona.atoms",
+                        "source_module_path": "signal.ops",
+                        "source_symbol": "peak_correction",
+                    }
+                ]
+            )
+        if query.name == "atom_source_repositories":
+            assert ("eq", "source_repo_id", "signal-repo") in query.filters
+            assert ("eq", "active", True) in query.filters
+            return FakeResult(
+                data=[
+                    {
+                        "repo_name": "signal",
+                        "distribution_name": "sciona-atoms-signal",
+                        "distribution_version": "1.0.0",
+                        "install_requirement": "sciona-atoms-signal==1.0.0",
+                        "wheel_url": "",
+                        "wheel_sha256": "",
+                    }
+                ]
+            )
+        raise AssertionError(query.name)
+
+    entry = await catalog.find_catalog_atom(
+        fqdn, supabase=FakeSupabaseClient(table_handler=table_handler)
+    )
+
+    assert entry.fqdn == fqdn
+    assert entry.provider is not None
+    assert entry.provider.import_symbol == "peak_correction"
+
+
+@pytest.mark.asyncio
 async def test_catalog_search_uses_hybrid_postgres_and_returns_provider_metadata(
     monkeypatch,
 ) -> None:

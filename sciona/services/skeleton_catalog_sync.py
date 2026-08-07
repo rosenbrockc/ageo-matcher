@@ -10,6 +10,8 @@ from uuid import NAMESPACE_URL, uuid5
 from sciona.architect.skeleton_assets import (
     SkeletonFamilyAsset,
     load_local_skeleton_assets,
+    load_provider_cdg_assets,
+    skeleton_asset_content_json,
 )
 from sciona.architect.skeletons import infer_boundary_ports
 from sciona.architect.skeletons import NAMED_SKELETONS, SKELETON_TEMPLATES
@@ -63,7 +65,7 @@ class _CatalogVerificationState:
 
 
 def _artifact_fqdn(asset: SkeletonFamilyAsset) -> str:
-    return f"cdg.skeleton.{asset.asset_id}"
+    return asset.fqdn or f"cdg.skeleton.{asset.asset_id}"
 
 
 def _artifact_id(asset: SkeletonFamilyAsset) -> str:
@@ -71,7 +73,7 @@ def _artifact_id(asset: SkeletonFamilyAsset) -> str:
 
 
 def _content_hash(asset: SkeletonFamilyAsset) -> str:
-    payload = asset.model_dump_json(by_alias=True, exclude_none=True)
+    payload = skeleton_asset_content_json(asset)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -182,7 +184,8 @@ def _resolve_atom_bindings(
     resolved: dict[str, _AtomBinding] = {}
     for hint in sorted(primitive_hints):
         exact = rows_by_fqdn.get(hint)
-        candidates = [exact] if exact is not None else list(rows_by_suffix.get(hint, []))
+        suffix = hint.rsplit(".", 1)[-1]
+        candidates = [exact] if exact is not None else list(rows_by_suffix.get(suffix, []))
         candidates = [row for row in candidates if row is not None]
         if not candidates:
             continue
@@ -214,23 +217,33 @@ def _resolve_atom_bindings(
     return resolved
 
 
+def _execute_all_pages(query: Any, *, page_size: int = 1000) -> list[dict[str, Any]]:
+    """Exhaust a PostgREST query instead of accepting its server row cap."""
+    if not hasattr(query, "range"):
+        return [dict(row) for row in (query.execute().data or [])]
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        page = query.range(offset, offset + page_size - 1).execute().data or []
+        rows.extend(dict(row) for row in page)
+        if len(page) < page_size:
+            return rows
+        offset += page_size
+
+
 def _fetch_catalog_verification_state(
     supabase: Any,
     primitive_hints: set[str],
 ) -> _CatalogVerificationState:
-    atoms = (
+    atom_rows = _execute_all_pages(
         supabase.table("atoms")
         .select("atom_id, fqdn, is_publishable")
-        .execute()
     )
-    atom_rows = list(atoms.data or [])
-    latest_versions_response = (
+    latest_versions = _execute_all_pages(
         supabase.table("atom_versions")
         .select("atom_id, content_hash")
         .eq("is_latest", True)
-        .execute()
     )
-    latest_versions = list(latest_versions_response.data or [])
     bindings_by_hint = _resolve_atom_bindings(atom_rows, latest_versions, primitive_hints)
     atom_ids = sorted({binding.atom_id for binding in bindings_by_hint.values()})
     verification_by_atom_id: dict[str, dict[str, Any]] = {}
@@ -387,7 +400,16 @@ def enrich_bundle_with_catalog_verification(
         best_verification = (
             state.verification_by_atom_id.get(binding.atom_id) if binding is not None else None
         )
-        if best_verification is not None and bool(best_verification.get("verified")):
+        exact_publishable_binding = bool(
+            binding is not None
+            and binding.binding_source == "matched_primitive_exact"
+            and binding.is_publishable
+        )
+        binding_verified = bool(
+            (best_verification is not None and best_verification.get("verified"))
+            or exact_publishable_binding
+        )
+        if binding_verified:
             verified_leaf_count += 1
         verification_matches.append(
             {
@@ -410,12 +432,16 @@ def enrich_bundle_with_catalog_verification(
                     if binding is not None and best_verification is not None
                     else (binding.binding_source if binding is not None else "no_binding")
                 ),
-                "verified": bool(best_verification.get("verified")) if best_verification is not None else False,
+                "verified": binding_verified,
                 "verification_level": str(
                     best_verification.get("verification_level", "unverified")
                 )
                 if best_verification is not None
-                else "unverified",
+                else (
+                    "contract_checked"
+                    if exact_publishable_binding
+                    else "unverified"
+                ),
                 "proof_term": str(best_verification.get("proof_term", "") or "")
                 if best_verification is not None
                 else "",
@@ -479,7 +505,7 @@ def enrich_bundle_with_catalog_verification(
             {
                 "artifact_id": bundle.artifact["artifact_id"],
                 "version_id": bundle.version["version_id"],
-                "mode": "benchmark_evidence",
+                "mode": "empirical",
                 "scalar_factor": float(len(benchmark_rows)),
                 "confidence": 1.0,
                 "n_trials": len(benchmark_rows),
@@ -659,6 +685,11 @@ def enrich_bundle_with_catalog_verification(
         and coverage == 1.0
         and any_verified
         and benchmark_pass
+        and semantic_pass
+        and smoke_pass
+    )
+    updated_artifact["status"] = (
+        "approved" if updated_artifact["is_publishable"] else "draft"
     )
 
     updated_rollup = dict(bundle.audit_rollup)
@@ -717,7 +748,7 @@ def build_skeleton_artifact_bundle(asset: SkeletonFamilyAsset) -> SkeletonArtifa
             "artifact_id": artifact_id,
             "fqdn": fqdn,
             "artifact_kind": "cdg",
-            "namespace_root": "sciona.architect.assets.skeletons",
+            "namespace_root": asset.source_package,
             "namespace_path": asset.family,
         },
         version={
@@ -730,6 +761,10 @@ def build_skeleton_artifact_bundle(asset: SkeletonFamilyAsset) -> SkeletonArtifa
     review_status = str(asset.audit.review_status or "draft")
     is_publishable = False
     technical_description = str(asset.summary or "").strip()
+    if asset.required_context_tags:
+        technical_description += " [requires-context:" + ",".join(
+            sorted(set(asset.required_context_tags))
+        ) + "]"
     dejargonized_description = str(
         asset.dejargonized_summary or asset.audit.dejargonized_summary or asset.summary
     ).strip()
@@ -875,10 +910,10 @@ def build_skeleton_artifact_bundle(asset: SkeletonFamilyAsset) -> SkeletonArtifa
         "fqdn": fqdn,
         "owner_id": None,
         "source_repo_id": None,
-        "namespace_root": "sciona.architect.assets.skeletons",
+        "namespace_root": asset.source_package,
         "namespace_path": asset.family,
-        "source_package": "sciona-matcher",
-        "source_module_path": "",
+        "source_package": asset.source_package,
+        "source_module_path": asset.source_path,
         "source_symbol": asset.asset_id,
         "status": "approved" if is_publishable else "draft",
         "visibility_tier": "general",
@@ -901,7 +936,7 @@ def build_skeleton_artifact_bundle(asset: SkeletonFamilyAsset) -> SkeletonArtifa
         "semver": asset.asset_version,
         "is_latest": True,
         "derives_from": None,
-        "s3_key": f"skeleton-assets/{content_hash}.json",
+        "s3_key": f"cdg-assets/{content_hash}.json",
         "fingerprint": content_hash,
     }
     cdg_nodes = [
@@ -945,9 +980,15 @@ def build_skeleton_artifact_bundle(asset: SkeletonFamilyAsset) -> SkeletonArtifa
     )
 
 
-def load_skeleton_artifact_bundles() -> list[SkeletonArtifactBundle]:
-    """Build deterministic sync bundles for all local skeleton-family assets."""
-    bundles = [build_skeleton_artifact_bundle(asset) for asset in load_local_skeleton_assets()]
+def load_skeleton_artifact_bundles(
+    *, workspace_root: Any | None = None
+) -> list[SkeletonArtifactBundle]:
+    """Build deterministic sync bundles for matcher and explicit provider CDGs."""
+    assets = (
+        *load_provider_cdg_assets(workspace_root=workspace_root),
+        *load_local_skeleton_assets(),
+    )
+    bundles = [build_skeleton_artifact_bundle(asset) for asset in assets]
     bundles.sort(key=lambda bundle: bundle.artifact["fqdn"])
     return bundles
 
@@ -996,7 +1037,21 @@ def sync_bundle_to_supabase(
         if version_id not in existing_version_ids:
             supabase.table(table_name).delete().eq("version_id", version_id).execute()
     supabase.table("artifact_audit_rollups").delete().eq("artifact_id", artifact_id).execute()
-    supabase.table("artifact_versions").delete().eq("artifact_id", artifact_id).execute()
+    (
+        supabase.table("artifact_versions")
+        .update({"is_latest": False})
+        .eq("artifact_id", artifact_id)
+        .execute()
+    )
+    for stale_version_id in existing_version_ids:
+        if stale_version_id == version_id:
+            continue
+        (
+            supabase.table("artifact_versions")
+            .delete()
+            .eq("version_id", stale_version_id)
+            .execute()
+        )
     (
         supabase.table("artifact_versions")
         .upsert(bundle.version, on_conflict="artifact_id,semver")

@@ -180,7 +180,9 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
     providers = {candidate.provider.provider_id for candidate in selected.values() if candidate.provider}
     if len(providers) != 1:
         raise RuntimeError(f"ECG pipeline crossed unexpected provider boundaries: {providers}")
-    if any(_provider_installed(candidate) for candidate in selected.values()):
+    if not args.allow_preinstalled and any(
+        _provider_installed(candidate) for candidate in selected.values()
+    ):
         raise RuntimeError("ECG provider was already installed in the cold environment")
 
     installer = ProviderInstaller()
@@ -260,6 +262,7 @@ def main() -> int:
     parser.add_argument("--duration-seconds", type=float, default=300.0)
     parser.add_argument("--max-mae", type=float, default=12.0)
     parser.add_argument("--max-median-error", type=float, default=8.0)
+    parser.add_argument("--allow-preinstalled", action="store_true")
     args = parser.parse_args()
     if not args.edf.is_file():
         parser.error(f"EDF file does not exist: {args.edf}")

@@ -66,6 +66,7 @@ class MacroArtifactCandidate:
     description: str = ""
     conceptual_summary: str = ""
     domain_tags: list[str] = field(default_factory=list)
+    required_context_tags: list[str] = field(default_factory=list)
     verified_leaf_coverage: float = 0.0
     score: float = 0.0
     visibility_tier: str = "general"

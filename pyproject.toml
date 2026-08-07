@@ -76,7 +76,7 @@ all = [
 ]
 
 [project.scripts]
-sciona = "sciona.cli:main"
+sciona = "sciona.entrypoint:main"
 
 [tool.hatch.build.targets.sdist]
 include = ["sciona/", "pyproject.toml", "README.md"]

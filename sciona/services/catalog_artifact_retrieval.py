@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from sciona.architect.handoff import CDGExport
@@ -17,6 +18,20 @@ from sciona.services.models import (
 from sciona.services.skeleton_artifacts import build_local_skeleton_macro_retriever
 
 log = logging.getLogger(__name__)
+
+_REQUIRED_CONTEXT_PATTERN = re.compile(r"\[requires-context:([^\]]+)\]", re.I)
+
+
+def _required_context_tags(*texts: str) -> list[str]:
+    tags: set[str] = set()
+    for text in texts:
+        for match in _REQUIRED_CONTEXT_PATTERN.findall(str(text or "")):
+            tags.update(
+                token.strip().lower()
+                for token in match.split(",")
+                if token.strip()
+            )
+    return sorted(tags)
 
 
 def _first_env(*names: str) -> str:
@@ -218,6 +233,23 @@ class CatalogMacroArtifactRetriever:
         version: dict[str, Any],
     ) -> MacroArtifactCandidate:
         artifact = dict(document.get("artifact") or {})
+        description = str(
+            row.get("technical_description", "")
+            or row.get("description", "")
+            or artifact.get("description", "")
+            or ""
+        )
+        conceptual_summary = str(
+            next(
+                (
+                    entry.get("content", "")
+                    for entry in (document.get("descriptions") or [])
+                    if entry.get("kind") == "dejargonized"
+                ),
+                artifact.get("description", ""),
+            )
+            or ""
+        )
         return MacroArtifactCandidate(
             fqdn=str(row.get("fqdn", "") or ""),
             semver=str(version.get("semver", "") or ""),
@@ -227,24 +259,13 @@ class CatalogMacroArtifactRetriever:
                 artifact.get("source_symbol", "")
                 or str(row.get("fqdn", "")).rsplit(".", 1)[-1]
             ),
-            description=str(
-                row.get("technical_description", "")
-                or row.get("description", "")
-                or artifact.get("description", "")
-                or ""
-            ),
-            conceptual_summary=str(
-                next(
-                    (
-                        entry.get("content", "")
-                        for entry in (document.get("descriptions") or [])
-                        if entry.get("kind") == "dejargonized"
-                    ),
-                    artifact.get("description", ""),
-                )
-                or ""
-            ),
+            description=description,
+            conceptual_summary=conceptual_summary,
             domain_tags=_artifact_domain_tags(row, document),
+            required_context_tags=_required_context_tags(
+                description,
+                conceptual_summary,
+            ),
             verified_leaf_coverage=float(
                 artifact.get("verified_leaf_coverage", row.get("verified_leaf_coverage", 0.0))
                 or 0.0

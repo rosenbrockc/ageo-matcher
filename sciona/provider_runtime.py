@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import urlopen
 
 from sciona.api.models import CatalogEntry, ProviderInstallInfo
@@ -27,6 +27,8 @@ _VERSION_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._+!-]*[A-Za-z0-9])?$")
 _DEFAULT_INSTALL_TIMEOUT_SECONDS = 300.0
 _DEFAULT_LOCK_TIMEOUT_SECONDS = 120.0
 _DEFAULT_MAX_WHEEL_BYTES = 512 * 1024 * 1024
+_TOKEN_RE = re.compile(r"[a-z0-9_]+")
+_REQUIRED_CONTEXT_RE = re.compile(r"\[requires-context:([^\]]+)\]", re.I)
 
 
 def _normalized_distribution(name: str) -> str:
@@ -68,12 +70,109 @@ class RemoteCatalogClient:
             response.raise_for_status()
         return [CatalogEntry.model_validate(row) for row in response.json()]
 
+    async def search_artifacts(
+        self,
+        query: str,
+        *,
+        domain_tag: str | None = None,
+        limit: int = 20,
+    ) -> list[CatalogEntry]:
+        """Search graph and atom artifacts through the unified catalog API."""
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError("Remote catalog search requires httpx") from exc
+        params: dict[str, Any] = {"q": query, "limit": limit}
+        if domain_tag:
+            params["domain_tag"] = domain_tag
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.get(
+                f"{self.api_url}/catalog/search-artifacts",
+                params=params,
+                headers=headers,
+            )
+            response.raise_for_status()
+        return [CatalogEntry.model_validate(row) for row in response.json()]
+
+    async def artifact_document(self, fqdn: str) -> dict[str, Any]:
+        """Fetch one complete artifact document, including CDG bindings."""
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError("Remote catalog retrieval requires httpx") from exc
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.get(
+                f"{self.api_url}/catalog/artifact/{fqdn}",
+                headers=headers,
+            )
+            response.raise_for_status()
+        document = response.json()
+        if not isinstance(document, dict):
+            raise TypeError(f"Artifact {fqdn!r} returned a non-object document")
+        return document
+
+    async def select_artifact(
+        self,
+        query: str,
+        *,
+        domain_tag: str | None = None,
+        limit: int = 40,
+    ) -> CatalogEntry:
+        """Select the best context-compatible CDG with deterministic scoring."""
+        rows = [
+            row
+            for row in await self.search_artifacts(
+                query, domain_tag=domain_tag, limit=limit
+            )
+            if row.artifact_kind == "cdg"
+        ]
+        if not rows:
+            raise LookupError(f"No CDG artifact matched {query!r}")
+        query_tokens = set(_TOKEN_RE.findall(query.lower()))
+
+        def rank(row: CatalogEntry) -> tuple[float, str]:
+            text = " ".join(
+                [row.fqdn, row.description, " ".join(row.domain_tags)]
+            ).lower()
+            tokens = set(_TOKEN_RE.findall(text.replace("_", " ")))
+            overlap = len(query_tokens & tokens) / max(1, len(query_tokens))
+            required = {
+                token.strip().lower()
+                for match in _REQUIRED_CONTEXT_RE.findall(text)
+                for token in match.split(",")
+                if token.strip()
+            }
+            mismatch = bool(required) and not bool(required & query_tokens)
+            context_match = bool(required) and bool(required & query_tokens)
+            trust = 0.25 if row.trust_readiness == "ready" else 0.0
+            score = (
+                overlap
+                + float(row.score or 0.0)
+                + trust
+                + (1.0 if context_match else 0.0)
+                - (2.0 if mismatch else 0.0)
+            )
+            return (-score, row.fqdn)
+
+        return sorted(rows, key=rank)[0]
+
     async def find(self, fqdn: str) -> CatalogEntry:
-        candidates = await self.search(fqdn, limit=50)
-        for candidate in candidates:
-            if candidate.fqdn == fqdn:
-                return candidate
-        raise LookupError(f"Atom {fqdn!r} was not returned by the remote catalog")
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError("Remote catalog retrieval requires httpx") from exc
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.get(
+                f"{self.api_url}/catalog/find/{quote(fqdn, safe='')}",
+                headers=headers,
+            )
+            if response.status_code == 404:
+                raise LookupError(f"Published atom {fqdn!r} was not found")
+            response.raise_for_status()
+        return CatalogEntry.model_validate(response.json())
 
 
 class ProviderInstaller:

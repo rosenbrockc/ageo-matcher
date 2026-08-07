@@ -9,6 +9,8 @@ from sciona.architect.models import AlgorithmicNode, NodeStatus
 from sciona.architect.skeleton_assets import (
     SkeletonFamilyAsset,
     load_local_skeleton_assets,
+    load_provider_cdg_assets,
+    skeleton_asset_content_json,
     skeleton_asset_summary,
 )
 from sciona.services.artifact_retrieval import MacroArtifactRetriever
@@ -16,12 +18,12 @@ from sciona.services.models import MacroArtifactCandidate
 
 
 def _asset_content_hash(asset: SkeletonFamilyAsset) -> str:
-    payload = asset.model_dump_json(by_alias=True, exclude_none=True)
+    payload = skeleton_asset_content_json(asset)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _asset_fqdn(asset: SkeletonFamilyAsset) -> str:
-    return f"cdg.skeleton.{asset.asset_id}"
+    return asset.fqdn or f"cdg.skeleton.{asset.asset_id}"
 
 
 def _asset_candidate_score(asset: SkeletonFamilyAsset) -> float:
@@ -78,14 +80,15 @@ def build_skeleton_asset_cdg(
 
 
 def load_local_skeleton_macro_candidates() -> list[MacroArtifactCandidate]:
-    """Build deterministic macro candidates from local skeleton-family assets."""
+    """Build deterministic macro candidates from local and provider CDG assets."""
     candidates: list[MacroArtifactCandidate] = []
-    for asset in load_local_skeleton_assets():
+    for asset in (*load_provider_cdg_assets(), *load_local_skeleton_assets()):
         domain_tags = [
             asset.paradigm.value,
             asset.family,
             asset.asset_id,
             *asset.variant_hints,
+            *asset.domain_tags,
         ]
         candidates.append(
             MacroArtifactCandidate(
@@ -101,6 +104,7 @@ def load_local_skeleton_macro_candidates() -> list[MacroArtifactCandidate]:
                     or asset.summary
                 ),
                 domain_tags=domain_tags,
+                required_context_tags=list(asset.required_context_tags),
                 verified_leaf_coverage=0.0,
                 score=_asset_candidate_score(asset),
                 visibility_tier="general",

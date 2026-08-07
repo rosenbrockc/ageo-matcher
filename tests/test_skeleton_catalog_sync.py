@@ -7,6 +7,7 @@ import pytest
 
 from sciona.architect.skeleton_assets import load_local_skeleton_assets
 from sciona.services.skeleton_catalog_sync import (
+    _execute_all_pages,
     build_skeleton_artifact_bundle,
     enrich_bundle_with_catalog_verification,
     load_skeleton_artifact_bundles,
@@ -89,6 +90,31 @@ class _FakeSupabase:
         return rows
 
 
+class _PagedQuery:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+        self.window = (0, 999)
+        self.windows: list[tuple[int, int]] = []
+
+    def range(self, start: int, end: int):
+        self.window = (start, end)
+        self.windows.append(self.window)
+        return self
+
+    def execute(self):
+        start, end = self.window
+        return SimpleNamespace(data=self.rows[start : end + 1])
+
+
+def test_execute_all_pages_exhausts_catalog_beyond_postgrest_cap() -> None:
+    query = _PagedQuery([{"atom_id": str(index)} for index in range(2505)])
+
+    rows = _execute_all_pages(query)
+
+    assert len(rows) == 2505
+    assert query.windows == [(0, 999), (1000, 1999), (2000, 2999)]
+
+
 @dataclass
 class _FakeGraphStore:
     ensure_constraints_calls: int = 0
@@ -157,7 +183,7 @@ def test_sync_bundle_to_supabase_uses_deterministic_child_table_reload(monkeypat
     assert ("artifact_descriptions", "upsert") in operations
     assert ("artifact_io_specs", "delete") in operations
     assert ("artifact_io_specs", "upsert") in operations
-    assert ("artifact_versions", "delete") in operations
+    assert ("artifact_versions", "update") in operations
     assert ("artifact_versions", "upsert") in operations
     assert ("references_registry", "upsert") in operations
     assert ("artifact_references", "upsert") in operations
@@ -181,17 +207,17 @@ def test_enrich_bundle_with_catalog_verification_derives_bindings_and_evidence()
             "atoms": [
                 {
                     "atom_id": "atom-filter",
-                    "fqdn": "pkg.signal.filter_signal_for_detection",
+                    "fqdn": "sciona.atoms.expansion.signal_event_rate.filter_signal_for_detection",
                     "is_publishable": True,
                 },
                 {
                     "atom_id": "atom-detect",
-                    "fqdn": "pkg.signal.detect_peaks_in_signal",
+                    "fqdn": "sciona.atoms.expansion.signal_event_rate.detect_peaks_in_signal",
                     "is_publishable": True,
                 },
                 {
                     "atom_id": "atom-rate",
-                    "fqdn": "pkg.signal.compute_event_rate",
+                    "fqdn": "sciona.atoms.expansion.signal_event_rate.compute_event_rate",
                     "is_publishable": True,
                 },
             ],
@@ -275,6 +301,7 @@ def test_enrich_bundle_with_catalog_verification_derives_bindings_and_evidence()
 
     assert enriched.artifact["verified_leaf_coverage"] == 1.0
     assert enriched.artifact["is_publishable"] is True
+    assert enriched.artifact["status"] == "approved"
     assert len(enriched.cdg_bindings) == 3
     assert len(enriched.verification_matches) == 3
     assert len(enriched.audit_evidence) >= 4
@@ -282,7 +309,7 @@ def test_enrich_bundle_with_catalog_verification_derives_bindings_and_evidence()
     assert enriched.audit_rollup["semantic_status"] == "pass"
     assert enriched.audit_rollup["trust_readiness"] == "ready"
     assert {row["mode"] for row in enriched.uncertainty_estimates} >= {
-        "benchmark_evidence",
+        "empirical",
         "propagated",
     }
     semantic_audit = next(
@@ -414,17 +441,17 @@ def test_enrich_bundle_with_catalog_verification_allows_bindings_without_verific
             "atoms": [
                 {
                     "atom_id": "atom-filter",
-                    "fqdn": "pkg.signal.filter_signal_for_detection",
+                    "fqdn": "sciona.atoms.expansion.signal_event_rate.filter_signal_for_detection",
                     "is_publishable": True,
                 },
                 {
                     "atom_id": "atom-detect",
-                    "fqdn": "pkg.signal.detect_peaks_in_signal",
+                    "fqdn": "sciona.atoms.expansion.signal_event_rate.detect_peaks_in_signal",
                     "is_publishable": True,
                 },
                 {
                     "atom_id": "atom-rate",
-                    "fqdn": "pkg.signal.compute_event_rate",
+                    "fqdn": "sciona.atoms.expansion.signal_event_rate.compute_event_rate",
                     "is_publishable": True,
                 },
             ],
@@ -445,9 +472,12 @@ def test_enrich_bundle_with_catalog_verification_allows_bindings_without_verific
     assert enriched.artifact["verified_leaf_coverage"] == 1.0
     assert enriched.artifact["is_publishable"] is False
     assert {row["retrieval_method"] for row in enriched.verification_matches} == {
-        "matched_primitive_publishable_suffix"
+        "matched_primitive_exact"
     }
-    assert all(row["verified"] is False for row in enriched.verification_matches)
+    assert all(row["verified"] is True for row in enriched.verification_matches)
+    assert {row["verification_level"] for row in enriched.verification_matches} == {
+        "contract_checked"
+    }
 
 
 @pytest.mark.asyncio

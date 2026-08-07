@@ -276,6 +276,66 @@ async def get_atom_document(
     return document
 
 
+@router.get("/find/{fqdn:path}")
+async def find_catalog_atom(
+    fqdn: str,
+    supabase=Depends(api_deps.get_supabase),
+) -> CatalogEntry:
+    """Resolve one exact published atom without relevance-search truncation."""
+    result = await (
+        supabase.table("atoms")
+        .select(
+            "fqdn,description,domain_tags,source_repo_id,import_module,"
+            "namespace_root,source_module_path,source_symbol"
+        )
+        .eq("fqdn", fqdn)
+        .eq("is_publishable", True)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    if not rows:
+        raise HTTPException(404, f"Audit-ready atom {fqdn!r} not found")
+    row = dict(rows[0])
+    repository_result = await (
+        supabase.table("atom_source_repositories")
+        .select(
+            "repo_name,distribution_name,distribution_version,install_requirement,"
+            "wheel_url,wheel_sha256"
+        )
+        .eq("source_repo_id", row.get("source_repo_id"))
+        .eq("active", True)
+        .limit(1)
+        .execute()
+    )
+    repository_rows = repository_result.data or []
+    provider = None
+    if repository_rows:
+        repository = repository_rows[0]
+        import_module = str(row.get("import_module", "") or "")
+        if not import_module:
+            import_module = ".".join(
+                part
+                for part in (
+                    str(row.get("namespace_root", "") or ""),
+                    str(row.get("source_module_path", "") or ""),
+                )
+                if part
+            )
+        provider = ProviderInstallInfo(
+            provider_id=str(repository.get("repo_name", "") or ""),
+            distribution_name=str(repository.get("distribution_name", "") or ""),
+            distribution_version=str(repository.get("distribution_version", "") or ""),
+            install_requirement=str(repository.get("install_requirement", "") or ""),
+            import_module=import_module,
+            import_symbol=str(row.get("source_symbol", "") or ""),
+            wheel_url=str(repository.get("wheel_url", "") or ""),
+            wheel_sha256=str(repository.get("wheel_sha256", "") or ""),
+        )
+    row["technical_description"] = str(row.get("description", "") or "")
+    return _catalog_entry_from_row(row, default_kind="atom", provider=provider)
+
+
 @router.get("/search-artifacts")
 async def artifact_search(
     q: str,

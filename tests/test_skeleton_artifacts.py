@@ -19,6 +19,7 @@ def test_local_skeleton_macro_candidates_are_deterministic() -> None:
     assert {
         candidate.fqdn for candidate in candidates
     } >= {
+        "cdg.sciona_atoms_signal.ecg_heart_rate_biosppy",
         "cdg.skeleton.belief_propagation",
         "cdg.skeleton.kalman_filter",
         "cdg.skeleton.particle_filter",
@@ -52,7 +53,7 @@ async def test_local_skeleton_macro_retriever_matches_belief_propagation() -> No
 
 
 @pytest.mark.asyncio
-async def test_local_skeleton_macro_retriever_matches_signal_detect_measure() -> None:
+async def test_local_skeleton_macro_retriever_prefers_concrete_ecg_cdg() -> None:
     retriever = build_local_skeleton_macro_retriever(min_score=0.3)
 
     result = await retriever.match_goal(
@@ -61,8 +62,21 @@ async def test_local_skeleton_macro_retriever_matches_signal_detect_measure() ->
 
     assert result.success is True
     assert result.candidate is not None
-    assert result.candidate.fqdn == "cdg.skeleton.signal_detect_measure"
+    assert result.candidate.fqdn == "cdg.sciona_atoms_signal.ecg_heart_rate_biosppy"
     assert result.candidate.terminal_on_match is False
+
+
+@pytest.mark.asyncio
+async def test_local_skeleton_macro_retriever_uses_generic_signal_cdg_when_masked() -> None:
+    retriever = build_local_skeleton_macro_retriever(min_score=0.3)
+
+    result = await retriever.match_goal(
+        MacroMatchRequest(goal="Estimate event rate from an unlabeled sampled waveform")
+    )
+
+    assert result.success is True
+    assert result.candidate is not None
+    assert result.candidate.fqdn == "cdg.skeleton.signal_detect_measure"
 
 
 @pytest.mark.asyncio

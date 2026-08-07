@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +26,11 @@ from sciona.asset_migration import (
     MigrationReadinessAsset,
     migration_readiness_summary,
 )
+from sciona.atom_identity import candidate_atom_provider_roots
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets" / "skeletons"
+PROVIDER_ASSET_DIR = Path("data") / "cdgs"
 
 
 class SkeletonReference(BaseModel):
@@ -93,12 +96,17 @@ class SkeletonFamilyAsset(BaseModel):
 
     asset_id: str
     asset_version: str
+    fqdn: str = ""
     family: str
     paradigm: ConceptType
     name: str
     summary: str = Field(validation_alias=AliasChoices("summary", "description"))
     dejargonized_summary: str = ""
     canonical_for_paradigm: bool = False
+    domain_tags: list[str] = Field(default_factory=list)
+    required_context_tags: list[str] = Field(default_factory=list)
+    source_package: str = "sciona-matcher"
+    source_path: str = ""
     variant_hints: list[str] = Field(
         default_factory=list,
         validation_alias=AliasChoices("variant_hints", "variant_aliases"),
@@ -266,6 +274,26 @@ def skeleton_asset_summary(
     return {}
 
 
+def skeleton_asset_content_json(asset: SkeletonFamilyAsset) -> str:
+    """Serialize an asset without perturbing hashes for legacy local skeletons."""
+    excluded: set[str] = set()
+    if not asset.fqdn:
+        excluded.add("fqdn")
+    if not asset.domain_tags:
+        excluded.add("domain_tags")
+    if not asset.required_context_tags:
+        excluded.add("required_context_tags")
+    if asset.source_package == "sciona-matcher":
+        excluded.add("source_package")
+    if not asset.source_path:
+        excluded.add("source_path")
+    return asset.model_dump_json(
+        by_alias=True,
+        exclude_none=True,
+        exclude=excluded,
+    )
+
+
 @lru_cache(maxsize=1)
 def load_local_skeleton_assets() -> tuple[SkeletonFamilyAsset, ...]:
     """Load local skeleton assets from disk."""
@@ -276,6 +304,55 @@ def load_local_skeleton_assets() -> tuple[SkeletonFamilyAsset, ...]:
         asset = SkeletonFamilyAsset.model_validate_json(path.read_text())
         _validate_registered_stage_hints(asset, path=path)
         assets.append(asset)
+    return tuple(assets)
+
+
+def _provider_cdg_paths(*, workspace_root: Path | None = None) -> tuple[Path, ...]:
+    roots: list[Path]
+    if workspace_root is None:
+        roots = [Path(root) for root in candidate_atom_provider_roots()]
+    else:
+        roots = [
+            path
+            for path in sorted(Path(workspace_root).expanduser().resolve().iterdir())
+            if path.is_dir()
+            and (path.name == "sciona-atoms" or path.name.startswith("sciona-atoms-"))
+        ]
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        asset_dir = root.expanduser().resolve() / PROVIDER_ASSET_DIR
+        if not asset_dir.is_dir():
+            continue
+        for path in sorted(asset_dir.glob("*.json")):
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                paths.append(resolved)
+    return tuple(paths)
+
+
+def load_provider_cdg_assets(
+    *, workspace_root: Path | None = None
+) -> tuple[SkeletonFamilyAsset, ...]:
+    """Load explicitly published solution CDGs from provider ``data/cdgs`` dirs."""
+    assets: list[SkeletonFamilyAsset] = []
+    seen_fqdns: set[str] = set()
+    for path in _provider_cdg_paths(workspace_root=workspace_root):
+        raw = json.loads(path.read_text())
+        if not isinstance(raw, dict) or raw.get("artifact_kind", "cdg") != "cdg":
+            continue
+        provider_root = path.parents[2]
+        raw.setdefault("source_package", provider_root.name)
+        raw.setdefault("source_path", str(path.relative_to(provider_root)))
+        asset = SkeletonFamilyAsset.model_validate(raw)
+        _validate_registered_stage_hints(asset, path=path)
+        fqdn = asset.fqdn or f"cdg.provider.{asset.asset_id}"
+        if fqdn in seen_fqdns:
+            raise ValueError(f"Duplicate provider CDG FQDN {fqdn!r} at {path}")
+        seen_fqdns.add(fqdn)
+        assets.append(asset)
+    assets.sort(key=lambda asset: (asset.fqdn or asset.asset_id, asset.asset_version))
     return tuple(assets)
 
 

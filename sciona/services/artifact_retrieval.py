@@ -25,6 +25,8 @@ def _tokenize(text: str) -> set[str]:
 
 @dataclass(frozen=True)
 class _CandidateScore:
+    context_mismatch: int
+    context_match: int
     exact_goal_match: int
     goal_overlap: float
     summary_overlap: float
@@ -61,6 +63,13 @@ def _rank_key(goal: str, candidate: MacroArtifactCandidate) -> tuple[Any, ...]:
     goal_tokens = _tokenize(goal)
     candidate_text = _candidate_text(candidate)
     candidate_tokens = _tokenize(candidate_text)
+    required_tokens = {
+        token
+        for tag in candidate.required_context_tags
+        for token in _tokenize(tag)
+    }
+    context_mismatch = int(bool(required_tokens) and not bool(goal_tokens & required_tokens))
+    context_match = int(bool(required_tokens) and bool(goal_tokens & required_tokens))
     summary_tokens = _tokenize(
         " ".join(
             part
@@ -82,6 +91,8 @@ def _rank_key(goal: str, candidate: MacroArtifactCandidate) -> tuple[Any, ...]:
     score = _safe_float(candidate.score)
     coverage = max(0.0, min(1.0, _safe_float(candidate.verified_leaf_coverage)))
     score_parts = _CandidateScore(
+        context_mismatch=context_mismatch,
+        context_match=context_match,
         exact_goal_match=exact_goal_match,
         goal_overlap=goal_overlap,
         summary_overlap=summary_overlap,
@@ -92,6 +103,8 @@ def _rank_key(goal: str, candidate: MacroArtifactCandidate) -> tuple[Any, ...]:
         semver=str(candidate.semver or ""),
     )
     return (
+        score_parts.context_mismatch,
+        -score_parts.context_match,
         -score_parts.exact_goal_match,
         -score_parts.goal_overlap,
         -score_parts.summary_overlap,
@@ -117,7 +130,21 @@ def _match_score(goal: str, candidate: MacroArtifactCandidate) -> float:
     goal_overlap = len(goal_tokens & candidate_tokens) / max(1, len(goal_tokens)) if goal_tokens else 0.0
     summary_overlap = len(goal_tokens & summary_tokens) / max(1, len(goal_tokens)) if goal_tokens else 0.0
     coverage = max(0.0, min(1.0, _safe_float(candidate.verified_leaf_coverage)))
-    return (1.5 * exact) + goal_overlap + (0.5 * summary_overlap) + (0.25 * coverage)
+    required_tokens = {
+        token
+        for tag in candidate.required_context_tags
+        for token in _tokenize(tag)
+    }
+    context_match = bool(required_tokens) and bool(goal_tokens & required_tokens)
+    context_penalty = 1.5 if required_tokens and not context_match else 0.0
+    return (
+        (1.5 * exact)
+        + goal_overlap
+        + (0.5 * summary_overlap)
+        + (0.25 * coverage)
+        + (1.0 if context_match else 0.0)
+        - context_penalty
+    )
 
 
 class MacroArtifactRetriever:

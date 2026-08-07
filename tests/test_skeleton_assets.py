@@ -145,22 +145,22 @@ class TestLocalSkeletonAssets:
         by_stage = {stage.stage_id: stage for stage in asset.stages}
 
         assert by_stage["tpl_filter_signal_for_detection"].matched_primitive == (
-            "filter_signal_for_detection"
+            "sciona.atoms.expansion.signal_event_rate.filter_signal_for_detection"
         )
         assert by_stage["tpl_detect_peaks_in_signal"].matched_primitive == (
-            "detect_peaks_in_signal"
+            "sciona.atoms.expansion.signal_event_rate.detect_peaks_in_signal"
         )
         assert by_stage["tpl_compute_event_rate"].matched_primitive == (
-            "compute_event_rate"
+            "sciona.atoms.expansion.signal_event_rate.compute_event_rate"
         )
 
         graph = asset.to_skeleton_graph()
         assert {
             node.node_id: node.matched_primitive for node in graph.template_nodes
         } == {
-            "tpl_filter_signal_for_detection": "filter_signal_for_detection",
-            "tpl_detect_peaks_in_signal": "detect_peaks_in_signal",
-            "tpl_compute_event_rate": "compute_event_rate",
+            "tpl_filter_signal_for_detection": "sciona.atoms.expansion.signal_event_rate.filter_signal_for_detection",
+            "tpl_detect_peaks_in_signal": "sciona.atoms.expansion.signal_event_rate.detect_peaks_in_signal",
+            "tpl_compute_event_rate": "sciona.atoms.expansion.signal_event_rate.compute_event_rate",
         }
 
 

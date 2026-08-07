@@ -5,6 +5,11 @@
   "paradigm": "signal_filter",
   "name": "Signal Detect and Measure",
   "description": "Condition a raw signal, extract discrete events, and compute a downstream rate from those events.",
+  "domain_tags": [
+    "signal_processing",
+    "event_rate",
+    "sampled_waveform"
+  ],
   "variant_aliases": [
     "signal_detect_measure",
     "event_rate_estimation",
@@ -72,7 +77,7 @@
       "guarantees": [
         "The output remains a waveform aligned to the input time base."
       ],
-      "matched_primitive": "filter_signal_for_detection"
+      "matched_primitive": "sciona.atoms.expansion.signal_event_rate.filter_signal_for_detection"
     },
     {
       "stage_id": "tpl_detect_peaks_in_signal",
@@ -108,7 +113,7 @@
       "guarantees": [
         "The output is an event sequence tied to the source waveform."
       ],
-      "matched_primitive": "detect_peaks_in_signal"
+      "matched_primitive": "sciona.atoms.expansion.signal_event_rate.detect_peaks_in_signal"
     },
     {
       "stage_id": "tpl_compute_event_rate",
@@ -144,7 +149,7 @@
       "guarantees": [
         "The output is a rate series backed by the detected events."
       ],
-      "matched_primitive": "compute_event_rate"
+      "matched_primitive": "sciona.atoms.expansion.signal_event_rate.compute_event_rate"
     }
   ],
   "edges": [
@@ -175,11 +180,12 @@
   ],
   "audit": {
     "source_kind": "local_asset",
-    "review_status": "draft",
-    "rationale": "This family caused repeated refinement failures and is the first high-leverage candidate for explicit skeleton auditability.",
+    "review_status": "transitional",
+    "rationale": "Cross-domain scaffold for sampled waveforms with repeated events. It deliberately carries no modality-specific assumptions; specialized provider CDGs should outrank it when their required context is present.",
     "dejargonized_summary": "Clean the signal, find the beats, then compute the rate while keeping track of what information is allowed to disappear at each step.",
     "provenance_notes": [
-      "Transitional local asset until canonical ownership moves into ../sciona-atoms."
+      "Transitional local asset until canonical ownership moves into a provider-neutral catalog package.",
+      "Validated independently on an unlabeled synthetic periodic-event waveform."
     ],
     "uncertainty_notes": [
       "Peak-correction and quality-control branches are deferred to the expansion-family phase."

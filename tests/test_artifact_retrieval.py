@@ -61,3 +61,35 @@ async def test_macro_artifact_retriever_rejects_weak_candidates() -> None:
 
     assert result.success is False
     assert result.rejection_reason == "macro_score_below_threshold"
+
+
+@pytest.mark.asyncio
+async def test_discipline_specific_candidate_requires_query_context() -> None:
+    generic = MacroArtifactCandidate(
+        fqdn="cdg.skeleton.signal_detect_measure",
+        name="Generic Signal Event Rate",
+        description="Condition a sampled waveform, detect events, and estimate a rate.",
+        domain_tags=["signal", "event_rate"],
+        score=0.8,
+    )
+    ecg = MacroArtifactCandidate(
+        fqdn="cdg.signal.ecg_heart_rate",
+        name="ECG Heart Rate Pipeline",
+        description="Detect heart rate from an ECG waveform.",
+        domain_tags=["signal", "event_rate", "ecg"],
+        required_context_tags=["ecg"],
+        score=1.0,
+    )
+    retriever = MacroArtifactRetriever([ecg, generic], min_score=0.1)
+
+    labeled = await retriever.match_goal(
+        MacroMatchRequest(goal="detect heart rate from raw ECG")
+    )
+    masked = await retriever.match_goal(
+        MacroMatchRequest(goal="estimate event rate from a sampled waveform")
+    )
+
+    assert labeled.candidate is not None
+    assert labeled.candidate.fqdn == ecg.fqdn
+    assert masked.candidate is not None
+    assert masked.candidate.fqdn == generic.fqdn

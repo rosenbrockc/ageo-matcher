@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -484,6 +485,142 @@ def _create_cold_matcher_environment(
     return python
 
 
+def _generated_provenance(path: Path) -> dict[str, object]:
+    tree = ast.parse(path.read_text())
+    return {
+        target.id: ast.literal_eval(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance((target := node.targets[0]), ast.Name)
+        and target.id in {"SELECTED_ARTIFACT", "SELECTED_ATOMS"}
+    }
+
+
+def _exercise_artifact_builder(
+    *,
+    python: Path,
+    api_url: str,
+    cert_path: Path,
+    work_dir: Path,
+    ecg_edf: Path,
+) -> dict[str, object]:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from ecg_data_e2e_runtime import _read_edf_channel
+
+    import numpy as np
+
+    signal, sampling_rate = _read_edf_channel(
+        ecg_edf, "ECG1-ECG2", start_seconds=3600.0, duration_seconds=300.0
+    )
+    reference, reference_rate = _read_edf_channel(
+        ecg_edf, "Pulse", start_seconds=3600.0, duration_seconds=300.0
+    )
+    builder_root = work_dir / "artifact-builder"
+    builder_root.mkdir()
+    np.savez_compressed(
+        builder_root / "input.npz",
+        signal=np.asarray(signal, dtype=np.float64),
+        sampling_rate=np.asarray(float(sampling_rate)),
+    )
+    env = {**os.environ, "SSL_CERT_FILE": str(cert_path)}
+    sciona = python.parent / "sciona"
+    arms = (
+        (
+            "labeled",
+            "Detect heart rate from raw ECG signal",
+            "estimate_heart_rate",
+            "cdg.sciona_atoms_signal.ecg_heart_rate_biosppy",
+        ),
+        (
+            "masked",
+            "Estimate event rate from an unlabeled sampled waveform",
+            "estimate_event_rate",
+            "cdg.skeleton.signal_detect_measure",
+        ),
+    )
+    results: dict[str, object] = {}
+    execute = """
+import importlib.util
+import json
+import numpy as np
+from pathlib import Path
+root = Path.cwd()
+spec = importlib.util.spec_from_file_location("built_solution", root / SOURCE)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+data = np.load(root / "input.npz")
+indices, rates = getattr(module, FUNCTION_NAME)(
+    np.asarray(data["signal"], dtype=float), float(data["sampling_rate"])
+)
+print(json.dumps({"indices": np.asarray(indices).tolist(), "rates": np.asarray(rates).tolist()}))
+"""
+    for name, query, function_name, expected_artifact in arms:
+        output_path = builder_root / f"{name}.py"
+        _run(
+            [
+                str(sciona),
+                "catalog",
+                "build",
+                query,
+                "--api-url",
+                api_url,
+                "--output",
+                str(output_path),
+                "--function-name",
+                function_name,
+            ],
+            cwd=builder_root,
+            env=env,
+            capture=True,
+        )
+        provenance = _generated_provenance(output_path)
+        if provenance.get("SELECTED_ARTIFACT") != expected_artifact:
+            raise RuntimeError(
+                f"{name} query selected {provenance.get('SELECTED_ARTIFACT')!r}; "
+                f"expected {expected_artifact!r}"
+            )
+        run = _run(
+            [
+                str(python),
+                "-c",
+                f"SOURCE={output_path.name!r}\nFUNCTION_NAME={function_name!r}\n" + execute,
+            ],
+            cwd=builder_root,
+            env=env,
+            capture=True,
+        )
+        prediction = json.loads(run.stdout.strip().splitlines()[-1])
+        indices = np.asarray(prediction["indices"], dtype=float).reshape(-1)
+        rates = np.asarray(prediction["rates"], dtype=float).reshape(-1)
+        aligned = np.interp(
+            indices / sampling_rate,
+            np.arange(reference.size, dtype=float) / reference_rate,
+            reference,
+        )
+        valid = np.isfinite(indices) & np.isfinite(rates) & np.isfinite(aligned)
+        valid &= (rates >= 30.0) & (rates <= 220.0)
+        valid &= (aligned >= 30.0) & (aligned <= 220.0)
+        if indices.size != rates.size or int(valid.sum()) < 10:
+            raise RuntimeError(f"{name} generated artifact produced insufficient output")
+        mae = float(np.mean(np.abs(rates[valid] - aligned[valid])))
+        median_error = float(abs(np.median(rates[valid]) - np.median(aligned[valid])))
+        if name == "labeled" and (mae > 12.0 or median_error > 8.0):
+            raise RuntimeError(
+                f"Labeled generated ECG artifact failed accuracy: MAE={mae:.3f}, "
+                f"median_error={median_error:.3f}"
+            )
+        results[name] = {
+            "selected_artifact": provenance["SELECTED_ARTIFACT"],
+            "selected_atoms": provenance["SELECTED_ATOMS"],
+            "comparison_count": int(valid.sum()),
+            "mae_bpm_on_ecg": mae,
+            "median_error_bpm_on_ecg": median_error,
+            "accuracy_required": name == "labeled",
+        }
+    return results
+
+
 def _exercise_cold_runtime(
     *,
     python: Path,
@@ -583,6 +720,7 @@ asyncio.run(main())
                 api_url,
                 "--edf",
                 str(ecg_edf),
+                "--allow-preinstalled",
             ],
             cwd=work_dir,
             env=env,
@@ -632,12 +770,19 @@ def main() -> int:
         default=None,
         help="Run an intent-discovered ECG pipeline against this real EDF recording",
     )
+    parser.add_argument(
+        "--agent-benchmark",
+        action="store_true",
+        help="Compare small Sciona-assisted and scratch agents on --ecg-edf",
+    )
     args = parser.parse_args()
 
     workspace_root = args.workspace_root.resolve()
     ecg_edf = args.ecg_edf.expanduser().resolve() if args.ecg_edf else None
     if ecg_edf is not None and not ecg_edf.is_file():
         parser.error(f"ECG EDF does not exist: {ecg_edf}")
+    if args.agent_benchmark and ecg_edf is None:
+        parser.error("--agent-benchmark requires --ecg-edf")
     matcher_root = Path(__file__).resolve().parents[1]
     temp_context = None
     if args.keep_workdir:
@@ -718,6 +863,45 @@ def main() -> int:
             wheel_dir=wheel_dir,
             cold_venv=work_dir / "cold-venv",
         )
+        artifact_builder: dict[str, object] | None = None
+        if ecg_edf is not None:
+            artifact_builder = _exercise_artifact_builder(
+                python=python,
+                api_url=api_url,
+                cert_path=cert_path,
+                work_dir=work_dir,
+                ecg_edf=ecg_edf,
+            )
+        agent_benchmark: dict[str, object] | None = None
+        if args.agent_benchmark:
+            agent_python = _create_cold_matcher_environment(
+                matcher_root=matcher_root,
+                wheel_dir=wheel_dir,
+                cold_venv=work_dir / "agent-cold-venv",
+            )
+            benchmark_output = matcher_root / "output" / time.strftime(
+                "ecg_agent_benchmark_%Y%m%d_%H%M%S"
+            )
+            benchmark_run = _run(
+                [
+                    str(Path(sys.executable)),
+                    str(matcher_root / "scripts" / "run_ecg_agent_benchmark.py"),
+                    "--api-url",
+                    api_url,
+                    "--tool-python",
+                    str(agent_python),
+                    "--edf",
+                    str(ecg_edf),
+                    "--cert",
+                    str(cert_path),
+                    "--output",
+                    str(benchmark_output),
+                ],
+                cwd=matcher_root,
+                env={**os.environ, "SSL_CERT_FILE": str(cert_path)},
+                capture=True,
+            )
+            agent_benchmark = json.loads(benchmark_run.stdout)
         results = _exercise_cold_runtime(
             python=python,
             api_url=api_url,
@@ -734,6 +918,8 @@ def main() -> int:
                     "results": results,
                     "embeddings": embedding_results,
                     "retrieval": retrieval_results,
+                    "artifact_builder": artifact_builder,
+                    "agent_benchmark": agent_benchmark,
                 },
                 indent=2,
             )
