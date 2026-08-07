@@ -1,5 +1,11 @@
 # Audit Status Improvement Implementation Plan
 
+> The counts below are historical. The current ten-provider baseline is
+> maintained in
+> [Catalog Audit Baseline](../audit/CATALOG_AUDIT_BASELINE.md); as of August 6,
+> 2026 it contains 3,380 seeded atoms, 1,302 audit-ready atoms, and 2,078 audit
+> gaps.
+
 ## Status
 
 Drafted on April 15, 2026 as the worker-facing execution plan for improving the

@@ -86,9 +86,10 @@ def _local_module_source_exists(module_name: str) -> bool:
         if resolved_root in seen_roots:
             continue
         seen_roots.add(resolved_root)
-        for rel in (rel_py, rel_pkg):
-            if (resolved_root / rel).exists():
-                return True
+        for source_root in (resolved_root, resolved_root / "src"):
+            for rel in (rel_py, rel_pkg):
+                if (source_root / rel).exists():
+                    return True
     return False
 
 
@@ -117,6 +118,10 @@ class PythonEnvironment:
     @property
     def prover_name(self) -> str:
         return "python"
+
+    @property
+    def python_path(self) -> str:
+        return self._python_path
 
     async def check_term(self, term: str, expected_type: str) -> tuple[bool, str]:
         """Check if a term has the expected type.

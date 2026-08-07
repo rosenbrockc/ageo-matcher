@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 
 from sciona.heuristic_registries import resolve_local_heuristic_registry
 from sciona.heuristics import HeuristicActionClass
-from sciona.principal.expansion_assets import resolve_local_expansion_asset
+from sciona.principal.expansion_assets import (
+    load_local_expansion_assets,
+    resolve_local_expansion_asset,
+)
 from sciona.principal.heuristic_outcomes import heuristic_action_bonus
 from sciona.usability import UsabilityAssessment
 
@@ -332,6 +335,16 @@ def candidate_action_classes(
         if asset is not None:
             for rule_name in rules_applied or []:
                 operation = asset.operation(rule_name)
+                if operation is None:
+                    operation = next(
+                        (
+                            candidate.operation(rule_name)
+                            for candidate in load_local_expansion_assets()
+                            if family in candidate.family_aliases
+                            and candidate.operation(rule_name) is not None
+                        ),
+                        None,
+                    )
                 if operation is not None:
                     classes.extend(operation.action_classes)
     return list(dict.fromkeys(classes))

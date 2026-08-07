@@ -376,7 +376,9 @@ async def _insert_publishability_requirements(
             acceptability_band,
             parity_coverage_level,
             review_status,
-            trust_readiness
+            trust_readiness,
+            review_semantic_verdict,
+            review_developer_semantics_verdict
         )
         VALUES (
             $1::uuid,
@@ -386,8 +388,10 @@ async def _insert_publishability_requirements(
             95,
             'acceptable_with_limits',
             'positive_and_negative',
-            'complete',
-            'ready'
+            'approved',
+            'ready',
+            'pass',
+            'pass'
         )
         """,
         atom_id,
@@ -548,11 +552,37 @@ async def _seed_publishable_atom(conn: Any) -> dict[str, str]:
     owner_user_id = str(members["owner"]["user_id"])
     atom_id = str(uuid4())
     version_id = str(uuid4())
+    source_repo_id = str(uuid4())
     suffix = uuid4().hex[:8]
     fqdn = "pkg.kalman_filter_" + suffix
     search_term = "seedterm" + suffix
     description = f"Kalman filter for noisy sensor signals {search_term}"
     content_hash = "content-hash-kalman-" + suffix
+
+    await conn.execute(
+        """
+        INSERT INTO public.atom_source_repositories (
+            source_repo_id,
+            repo_name,
+            repo_url,
+            namespace_root,
+            distribution_name,
+            distribution_version,
+            install_requirement
+        )
+        VALUES (
+            $1::uuid,
+            $2,
+            'https://example.com/sciona-atoms-signal.git',
+            'sciona.atoms',
+            'sciona-atoms-signal',
+            '1.0.0',
+            'sciona-atoms-signal==1.0.0'
+        )
+        """,
+        source_repo_id,
+        "sciona-atoms-signal-" + suffix,
+    )
 
     await conn.execute(
         """
@@ -563,7 +593,11 @@ async def _seed_publishable_atom(conn: Any) -> dict[str, str]:
             domain_tags,
             description,
             status,
-            visibility_tier
+            visibility_tier,
+            source_repo_id,
+            source_package,
+            source_module_path,
+            source_symbol
         )
         VALUES (
             $1::uuid,
@@ -572,13 +606,18 @@ async def _seed_publishable_atom(conn: Any) -> dict[str, str]:
             ARRAY['signal', 'filtering']::text[],
             $4,
             'approved',
-            'general'
+            'general',
+            $5::uuid,
+            'sciona.atoms',
+            'signal.filtering',
+            'kalman_filter'
         )
         """,
         atom_id,
         owner_user_id,
         fqdn,
         description,
+        source_repo_id,
     )
     await conn.execute(
         """
@@ -659,6 +698,7 @@ async def _seed_publishable_atom(conn: Any) -> dict[str, str]:
         "version_id": version_id,
         "fqdn": fqdn,
         "search_term": search_term,
+        "distribution_name": "sciona-atoms-signal",
     }
 
 
@@ -747,6 +787,19 @@ async def test_local_supabase_phase3_phase6_objects_and_rpcs(
             seeded["atom_id"],
         )
         assert any(row["fqdn"] == seeded["fqdn"] for row in hybrid_rows)
+
+        installation = await conn.fetchrow(
+            """
+            SELECT distribution_name, install_requirement, import_module, import_symbol
+            FROM public.catalog_atom_installations
+            WHERE fqdn = $1
+            """,
+            seeded["fqdn"],
+        )
+        assert installation["distribution_name"] == seeded["distribution_name"]
+        assert installation["install_requirement"] == "sciona-atoms-signal==1.0.0"
+        assert installation["import_module"] == "sciona.atoms.signal.filtering"
+        assert installation["import_symbol"] == "kalman_filter"
     finally:
         await conn.close()
 
@@ -778,6 +831,25 @@ async def test_local_supabase_anon_catalog_and_rpc_access(
         assert catalog_response.status_code == 200, catalog_response.text
         rows = catalog_response.json()
         assert any(row["fqdn"] == seeded["fqdn"] for row in rows)
+
+        installation_response = await client.get(
+            f"{supabase_local_env['api_url']}/rest/v1/catalog_atom_installations",
+            params={
+                "select": "fqdn,distribution_name,install_requirement,import_module,import_symbol",
+                "fqdn": f"eq.{seeded['fqdn']}",
+            },
+            headers=headers,
+        )
+        assert installation_response.status_code == 200, installation_response.text
+        assert installation_response.json() == [
+            {
+                "fqdn": seeded["fqdn"],
+                "distribution_name": seeded["distribution_name"],
+                "install_requirement": "sciona-atoms-signal==1.0.0",
+                "import_module": "sciona.atoms.signal.filtering",
+                "import_symbol": "kalman_filter",
+            }
+        ]
 
         rpc_response = await client.post(
             f"{supabase_local_env['api_url']}/rest/v1/rpc/search_atoms_hybrid",
@@ -841,7 +913,7 @@ async def test_local_supabase_zero_input_atom_can_be_publishable(
                 content_hash,
                 semver,
                 fingerprint,
-                source_tar_b64,
+                s3_key,
                 is_latest
             )
             VALUES (
@@ -850,7 +922,7 @@ async def test_local_supabase_zero_input_atom_can_be_publishable(
                 $3,
                 '0.1.0',
                 repeat('f', 64),
-                encode('zero-input', 'base64'),
+                'atoms/zero-input.tar.gz',
                 TRUE
             )
             """,

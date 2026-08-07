@@ -351,6 +351,55 @@ def detect_demo(signal: "np.ndarray") -> "np.ndarray":
         matcher_sciona.__spec__.submodule_search_locations[:] = before_sciona_spec_path
 
 
+def test_seed_catalog_attributes_candidates_before_cross_source_dedup(tmp_path: Path):
+    repo = tmp_path / "repo"
+    _write(
+        repo / "src" / "sciona" / "atoms" / "demo" / "atoms.py",
+        """
+from sciona.ghost.registry import register_atom
+
+def witness_detect_demo(signal: object) -> object:
+    return signal
+
+@register_atom(witness_detect_demo)
+def detect_demo(signal: object) -> object:
+    return signal
+""".strip()
+        + "\n",
+    )
+    config = SourcesConfig(
+        sources=[
+            AtomSource(
+                name="specific-provider",
+                package="sciona.atoms.demo",
+                path="repo",
+                python_path="src",
+            ),
+            AtomSource(
+                name="aggregate-provider",
+                package="sciona.atoms",
+                path="repo",
+                python_path="src",
+            ),
+        ]
+    )
+    report = CatalogReport()
+
+    added = seed_catalog_from_sources(
+        PrimitiveCatalog(),
+        config=config,
+        base_dir=tmp_path,
+        include_live_registries=False,
+        report=report,
+    )
+
+    assert added == 1
+    assert report.source_breakdown["specific-provider"]["ast_candidates"] == 1
+    assert report.source_breakdown["specific-provider"]["added"] == 1
+    assert report.source_breakdown["aggregate-provider"]["ast_candidates"] == 1
+    assert "added" not in report.source_breakdown["aggregate-provider"]
+
+
 def test_alias_candidates_include_full_module_path_alias():
     def detect_peaks(signal):
         return signal

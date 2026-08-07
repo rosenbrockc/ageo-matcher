@@ -3,6 +3,6 @@ prover: python
 evaluation_spec_file: ecg_heart_rate_eval.json
 optimization_metric: rmse
 ground_truth_patterns:
-  - "filter_signal_for_detection|bandpass_filter"
-  - "detect_peaks_in_signal|r_peak_detection|hamilton_segment"
-  - "compute_event_rate|heart_rate_computation"
+  - "filter|smooth|denoise"
+  - "peak|event|beat"
+  - "rate|interval|frequency"

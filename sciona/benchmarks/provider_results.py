@@ -292,13 +292,13 @@ def _kalman_sequence(
 
 def _kalman_filter_estimates(truth: np.ndarray, observations: np.ndarray) -> np.ndarray:
     from sciona.atoms.state_estimation.kalman_filters.static_kf.atoms import (
-        exposelatentmean,
-        initializelineargaussianstatemodel,
-        predictlatentstate,
-        updatewithmeasurement,
+        expose_latent_mean,
+        initialize_linear_gaussian_state_model,
+        predict_latent_state,
+        update_with_measurement,
     )
 
-    state = initializelineargaussianstatemodel(
+    state = initialize_linear_gaussian_state_model(
         initial_state=0.0,
         initial_covariance=1.0,
         transition_matrix=1.0,
@@ -308,9 +308,9 @@ def _kalman_filter_estimates(truth: np.ndarray, observations: np.ndarray) -> np.
     )
     estimates = []
     for measurement in observations:
-        state = predictlatentstate(state)
-        state = updatewithmeasurement(state, float(measurement))
-        estimates.append(float(exposelatentmean(state)[0]))
+        state = predict_latent_state(state)
+        state = update_with_measurement(state, float(measurement))
+        estimates.append(float(expose_latent_mean(state)[0]))
     return np.asarray(estimates, dtype=np.float64)
 
 

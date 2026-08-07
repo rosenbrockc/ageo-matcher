@@ -76,6 +76,33 @@ class VerificationOracleImpl:
         Attempts direct type checking: `@{candidate_name}` as term for `pdg_node.statement`.
         """
         env = self._get_env(pdg_node.prover)
+        declaration = candidate.declaration
+        if pdg_node.prover == Prover.PYTHON and declaration.install_requirement:
+            from sciona.api.models import ProviderInstallInfo
+            from sciona.provider_runtime import ProviderInstaller
+
+            provider = ProviderInstallInfo(
+                provider_id=declaration.provider_id,
+                distribution_name=declaration.distribution_name,
+                distribution_version=declaration.distribution_version,
+                install_requirement=declaration.install_requirement,
+                import_module=declaration.import_module,
+                import_symbol=declaration.import_symbol,
+                wheel_url=declaration.wheel_url,
+                wheel_sha256=declaration.wheel_sha256,
+            )
+            installer = ProviderInstaller(
+                python_executable=getattr(env, "python_path", None)
+            )
+            try:
+                await asyncio.to_thread(installer.ensure_installed, provider)
+            except Exception as exc:
+                return VerificationResult(
+                    candidate=candidate,
+                    verified=False,
+                    error_message=f"provider installation failed: {exc}",
+                    verification_level=VerificationLevel.UNVERIFIED,
+                )
         # Use bare function name for Python (@ prefix is Lean syntax)
         if pdg_node.prover == Prover.PYTHON:
             term = candidate.declaration.name

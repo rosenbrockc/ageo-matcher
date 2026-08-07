@@ -6,6 +6,7 @@ build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.sciona_datasets_cache/
 .DS_Store
 data/
 !ageom/data/

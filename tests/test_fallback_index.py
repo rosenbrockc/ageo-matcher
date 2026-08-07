@@ -111,6 +111,27 @@ def test_cli_loader_can_force_lexical_backend(tmp_path, monkeypatch):
     assert hits and hits[0][0].name == "fft_forward"
 
 
+def test_cli_loader_uses_postgres_backend_without_loading_local_index(
+    tmp_path, monkeypatch
+):
+    from sciona.indexer.faiss_store import FAISSStore
+    from sciona.provider_runtime import PostgresSemanticIndex
+
+    monkeypatch.setattr(
+        FAISSStore,
+        "load",
+        staticmethod(lambda _directory: (_ for _ in ()).throw(AssertionError("FAISS loaded"))),
+    )
+
+    class _Cfg:
+        semantic_index_backend = "postgres"
+
+    index, mode = _load_semantic_index(tmp_path, _Cfg())
+
+    assert isinstance(index, PostgresSemanticIndex)
+    assert mode == "postgres"
+
+
 def test_cli_loader_forced_faiss_reraises_missing_backend(tmp_path, monkeypatch):
     _write_msgpack_index(tmp_path)
 

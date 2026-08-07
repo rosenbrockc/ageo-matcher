@@ -34,7 +34,7 @@ class FakeQuery:
         self.payload = fields
         return self
 
-    def upsert(self, payload: Any):
+    def upsert(self, payload: Any, **kwargs: Any):
         self.action = "upsert"
         self.payload = payload
         return self
@@ -144,6 +144,10 @@ def test_backfill_upserts_embeddings(monkeypatch) -> None:
         calls.append((query.name, query.action, query.payload))
         if query.name == "atom_embeddings" and query.action == "upsert":
             return FakeResult(data=query.payload)
+        if query.name == "catalog_embedding_configuration" and query.action == "upsert":
+            return FakeResult(data=query.payload)
+        if query.name == "embedding_refresh_queue" and query.action == "update":
+            return FakeResult(data=[])
         raise AssertionError(f"unexpected table query: {query.name} {query.action}")
 
     def rpc_handler(query: FakeRpcQuery) -> FakeResult:
@@ -162,7 +166,7 @@ def test_backfill_upserts_embeddings(monkeypatch) -> None:
 
     monkeypatch.setattr("scripts.generate_embeddings.time.sleep", lambda _: None)
     supabase = FakeSupabaseClient(table_handler=table_handler, rpc_handler=rpc_handler)
-    openai_client = FakeOpenAIClient([[0.1, 0.2, 0.3]])
+    openai_client = FakeOpenAIClient([[0.1] * EMBEDDING_DIMENSIONS])
 
     backfill(supabase, openai_client)
 
@@ -173,7 +177,11 @@ def test_backfill_upserts_embeddings(monkeypatch) -> None:
             "dimensions": EMBEDDING_DIMENSIONS,
         }
     ]
-    upsert_payload = calls[-1][2]
+    upsert_payload = next(
+        payload
+        for name, action, payload in calls
+        if name == "atom_embeddings" and action == "upsert"
+    )
     assert upsert_payload[0]["atom_id"] == "a1"
     assert upsert_payload[0]["model"] == EMBEDDING_MODEL
     assert upsert_payload[0]["dimensions"] == EMBEDDING_DIMENSIONS
@@ -181,6 +189,8 @@ def test_backfill_upserts_embeddings(monkeypatch) -> None:
         "pkg.filter\nFilter signal\nClean a signal\nsignal"
     )
     assert upsert_payload[0]["updated_at"].endswith("Z")
+    assert upsert_payload[0]["embedding_space_id"].endswith(":atom-search-v1")
+    assert calls[-1][0] == "catalog_embedding_configuration"
 
 
 def test_drain_queue_updates_status_and_embeddings() -> None:
@@ -216,7 +226,7 @@ def test_drain_queue_updates_status_and_embeddings() -> None:
         table_handler=table_handler,
         rpc_handler=lambda query: FakeResult(data=[]),
     )
-    openai_client = FakeOpenAIClient([[0.1, 0.2]])
+    openai_client = FakeOpenAIClient([[0.1] * EMBEDDING_DIMENSIONS])
 
     drain_queue(supabase, openai_client)
 
@@ -288,3 +298,37 @@ def test_phase6_migration_matches_plan() -> None:
     assert "CREATE OR REPLACE FUNCTION public.search_atoms_hybrid" in sql
     assert "CREATE OR REPLACE FUNCTION public.get_atoms_needing_embeddings()" in sql
     assert "ae.input_text_hash IS DISTINCT FROM public.atom_embedding_input_hash" in sql
+
+
+def test_embedding_provenance_migration_tracks_and_refreshes_model_space() -> None:
+    migration_path = (
+        Path(__file__).resolve().parents[1]
+        / "supabase"
+        / "migrations"
+        / "20260806020000_embedding_provenance.sql"
+    )
+    sql = migration_path.read_text()
+
+    assert "CREATE TABLE IF NOT EXISTS public.catalog_embedding_configuration" in sql
+    assert "ADD COLUMN IF NOT EXISTS model_revision" in sql
+    assert "ADD COLUMN IF NOT EXISTS embedding_space_id" in sql
+    assert "ae.model_revision IS DISTINCT FROM expected_model_revision" in sql
+    assert "ae.embedding_space_id IS DISTINCT FROM expected_embedding_space_id" in sql
+    assert "get_active_embedding_configuration" in sql
+
+
+def test_catalog_intent_search_migration_is_generic_and_mirrored() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    relative_path = Path(
+        "supabase/migrations/20260806030000_catalog_intent_fts.sql"
+    )
+    matcher_sql = (repo_root / relative_path).read_text()
+    infra_sql = (repo_root.parent / "sciona-infra" / relative_path).read_text()
+
+    assert matcher_sql == infra_sql
+    assert "CREATE OR REPLACE FUNCTION public.catalog_relaxed_tsquery" in matcher_sql
+    assert "tsvector_to_array(" in matcher_sql
+    assert "array_to_string(values, ' | ')" in matcher_sql
+    assert "websearch_to_tsquery(" in matcher_sql
+    assert "candidates.document @@ candidates.strict_tsq" in matcher_sql
+    assert "candidates.document @@ candidates.relaxed_tsq" in matcher_sql

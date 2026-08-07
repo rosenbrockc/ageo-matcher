@@ -1,0 +1,320 @@
+{
+  "blockers": {
+    "audit_rollup": 325,
+    "dejargonized_description": 665,
+    "io_specs": 228,
+    "parameters": 325,
+    "references": 26,
+    "technical_description": 665,
+    "trust_review": 482
+  },
+  "providers": {
+    "sciona-atoms": {
+      "atoms": 360,
+      "audit_gap": 151,
+      "audit_gap_sample": [
+        "sciona.atoms.graph_features.node_onehot_positional",
+        "sciona.atoms.numerical.clustering.affinity_propagation_clustering.AP_message_update",
+        "sciona.atoms.numerical.clustering.affinity_propagation_clustering.extract_exemplars",
+        "sciona.atoms.numerical.clustering.dbscan_density_clustering.find_core_points",
+        "sciona.atoms.numerical.clustering.dbscan_density_clustering.propagate_labels",
+        "sciona.atoms.numerical.clustering.gaussian_mixture_em_clustering.gmm_e_step",
+        "sciona.atoms.numerical.clustering.gaussian_mixture_em_clustering.gmm_m_step",
+        "sciona.atoms.numerical.clustering.hierarchical_agglomerative_clustering.compute_linkage",
+        "sciona.atoms.numerical.clustering.hierarchical_agglomerative_clustering.cut_tree",
+        "sciona.atoms.numerical.clustering.kmeans_lloyd_clustering.assign_clusters",
+        "sciona.atoms.numerical.clustering.kmeans_lloyd_clustering.initialize_kmeans_plus_plus",
+        "sciona.atoms.numerical.clustering.kmeans_lloyd_clustering.update_centroids",
+        "sciona.atoms.numerical.clustering.mean_shift_clustering.extract_modes",
+        "sciona.atoms.numerical.clustering.mean_shift_clustering.shift_step",
+        "sciona.atoms.numerical.clustering.mini_batch_kmeans_clustering.sample_batch",
+        "sciona.atoms.numerical.clustering.mini_batch_kmeans_clustering.update_batch_centroids",
+        "sciona.atoms.numerical.clustering.optics_density_clustering.extract_optics_dbscan",
+        "sciona.atoms.numerical.clustering.optics_density_clustering.solve_optics_ordering",
+        "sciona.atoms.numerical.clustering.silhouette_cluster_validation.aggregate_mean_score",
+        "sciona.atoms.numerical.clustering.silhouette_cluster_validation.compute_silhouette_samples"
+      ],
+      "audit_ready": 209,
+      "blockers": {
+        "audit_rollup": 151,
+        "dejargonized_description": 151,
+        "io_specs": 142,
+        "parameters": 151,
+        "references": 6,
+        "technical_description": 151,
+        "trust_review": 151
+      },
+      "publishable": 209,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-bio": {
+      "atoms": 84,
+      "audit_gap": 12,
+      "audit_gap_sample": [
+        "sciona.atoms.bio.chemical_descriptors.compute_descriptors",
+        "sciona.atoms.bio.chemical_descriptors.maccs_keys",
+        "sciona.atoms.bio.chemical_descriptors.morgan_fingerprint",
+        "sciona.atoms.bio.chemical_descriptors.smiles_to_mol",
+        "sciona.atoms.bio.molecular_docking.greedy_mapping_d12.construct_mapping_state_via_greedy_expansion",
+        "sciona.atoms.bioinformatics.dynamic_programming_needleman_wunsch.execute_traceback",
+        "sciona.atoms.bioinformatics.dynamic_programming_needleman_wunsch.fill_scoring_matrix",
+        "sciona.atoms.graph_inference.connectome.calcium_lowpass_filter",
+        "sciona.atoms.graph_inference.connectome.fluorescence_hard_threshold",
+        "sciona.atoms.graph_inference.connectome.global_activity_sample_reweighting",
+        "sciona.atoms.graph_inference.connectome.score_matrix_normalization",
+        "sciona.atoms.graph_inference.connectome.temporal_precedence_directivity"
+      ],
+      "audit_ready": 72,
+      "blockers": {
+        "audit_rollup": 11,
+        "dejargonized_description": 12,
+        "io_specs": 2,
+        "parameters": 11,
+        "technical_description": 12,
+        "trust_review": 11
+      },
+      "publishable": 72,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-cs": {
+      "atoms": 50,
+      "audit_gap": 48,
+      "audit_gap_sample": [
+        "sciona.atoms.combinatorial.graph.astar_heuristic_search.run_astar_search",
+        "sciona.atoms.combinatorial.graph.bellman_ford_negative_weight_paths.execute_bellman_relaxation",
+        "sciona.atoms.combinatorial.graph.bellman_ford_negative_weight_paths.verify_negative_cycles",
+        "sciona.atoms.combinatorial.graph.betweenness_centrality_brandes.brandes_accumulation",
+        "sciona.atoms.combinatorial.graph.bipartite_matching_hopcroft_karp.run_hopcroft_karp",
+        "sciona.atoms.combinatorial.graph.bipartite_matching_hopcroft_karp.verify_bipartition",
+        "sciona.atoms.combinatorial.graph.branch_and_bound_tsp.run_branch_and_bound_search",
+        "sciona.atoms.combinatorial.graph.branch_and_bound_tsp.tsp_greedy_approximation",
+        "sciona.atoms.combinatorial.graph.breadth_first_search_traversal.init_traversal_arrays",
+        "sciona.atoms.combinatorial.graph.breadth_first_search_traversal.run_bfs_queue",
+        "sciona.atoms.combinatorial.graph.community_louvain_modularity.condense_meta_graph",
+        "sciona.atoms.combinatorial.graph.community_louvain_modularity.optimize_local_modularity",
+        "sciona.atoms.combinatorial.graph.connected_components_labeling.label_graph_components",
+        "sciona.atoms.combinatorial.graph.connected_components_labeling.verify_symmetry",
+        "sciona.atoms.combinatorial.graph.depth_first_search_traversal.init_dfs_state",
+        "sciona.atoms.combinatorial.graph.depth_first_search_traversal.run_dfs_stack",
+        "sciona.atoms.combinatorial.graph.floyd_warshall_all_pairs_paths.run_floyd_warshall",
+        "sciona.atoms.combinatorial.graph.graph_edge_list_to_adjacency.build_node_vocabulary",
+        "sciona.atoms.combinatorial.graph.graph_edge_list_to_adjacency.construct_coo_coordinates",
+        "sciona.atoms.combinatorial.graph.johnsons_all_pairs_shortest_path.calculate_johnson_potentials"
+      ],
+      "audit_ready": 2,
+      "blockers": {
+        "references": 2,
+        "trust_review": 48
+      },
+      "publishable": 2,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-dl": {
+      "atoms": 136,
+      "audit_gap": 128,
+      "audit_gap_sample": [
+        "sciona.atoms.dl.adversarial.auxiliary_logit_loss_fusion",
+        "sciona.atoms.dl.adversarial.ensemble_prediction_label_inference",
+        "sciona.atoms.dl.adversarial.std_normalized_momentum_gradient",
+        "sciona.atoms.dl.architectures.autoregressive_transformer_decoder",
+        "sciona.atoms.dl.architectures.densenet_backbone",
+        "sciona.atoms.dl.architectures.efficientnet_backbone",
+        "sciona.atoms.dl.architectures.loftr_dense_matcher",
+        "sciona.atoms.dl.architectures.mil_attention_aggregator",
+        "sciona.atoms.dl.architectures.recurrent_sequence_model",
+        "sciona.atoms.dl.architectures.resnet_family_backbone",
+        "sciona.atoms.dl.architectures.slowfast_video_network",
+        "sciona.atoms.dl.architectures.superglue_matcher",
+        "sciona.atoms.dl.architectures.superpoint_extractor",
+        "sciona.atoms.dl.architectures.swin_transformer_backbone",
+        "sciona.atoms.dl.architectures.unet_1d_sequence",
+        "sciona.atoms.dl.architectures.unet_2d_segmentation",
+        "sciona.atoms.dl.architectures.whisper_asr_transformer",
+        "sciona.atoms.dl.architectures.yolo_object_detector",
+        "sciona.atoms.dl.detection.associate_boxes",
+        "sciona.atoms.dl.detection.decode_boxes"
+      ],
+      "audit_ready": 8,
+      "blockers": {
+        "audit_rollup": 29,
+        "dejargonized_description": 34,
+        "parameters": 29,
+        "references": 7,
+        "technical_description": 34,
+        "trust_review": 125
+      },
+      "publishable": 8,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-fintech": {
+      "atoms": 80,
+      "audit_gap": 2,
+      "audit_gap_sample": [
+        "sciona.atoms.fintech.signal_processing.alpha_isolation",
+        "sciona.atoms.fintech.signal_processing.temporal_date_alignment"
+      ],
+      "audit_ready": 78,
+      "blockers": {
+        "references": 2,
+        "trust_review": 2
+      },
+      "publishable": 78,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-geo": {
+      "atoms": 20,
+      "audit_gap": 4,
+      "audit_gap_sample": [
+        "sciona.atoms.geo.augmentation.gsd_aware_random_crop",
+        "sciona.atoms.geo.augmentation.gsd_aware_shift_scale_rotate",
+        "sciona.atoms.geo.losses.circular_direction_loss",
+        "sciona.atoms.geo.losses.r2_regression_loss"
+      ],
+      "audit_ready": 16,
+      "blockers": {
+        "trust_review": 4
+      },
+      "publishable": 16,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-ml": {
+      "atoms": 2327,
+      "audit_gap": 363,
+      "audit_gap_sample": [
+        "sciona.atoms.ml.calibration.probability_calibration.compute_calibration_binned_frequencies",
+        "sciona.atoms.ml.calibration.probability_calibration.fit_platt_scaling",
+        "sciona.atoms.ml.constrained_ml.decorrelation.flatness_penalty_gradient",
+        "sciona.atoms.ml.ensemble.bagging_ensemble_workflow.fit_bootstrap_estimator",
+        "sciona.atoms.ml.ensemble.bagging_ensemble_workflow.generate_bootstrap_indices",
+        "sciona.atoms.ml.ensemble.stacking_crossfit_ensemble.compile_oof_meta_features",
+        "sciona.atoms.ml.ensemble.stacking_crossfit_ensemble.fit_meta_model",
+        "sciona.atoms.ml.feature_selection.mutual_info_feature_selection.compute_ksg_mutual_information",
+        "sciona.atoms.ml.feature_selection.recursive_feature_elimination.execute_rfe_step",
+        "sciona.atoms.ml.metrics.classification_metric_suite.compute_binary_classification_stats",
+        "sciona.atoms.ml.metrics.classification_metric_suite.compute_f_beta_score",
+        "sciona.atoms.ml.metrics.confusion_matrix_error_analysis.build_raw_confusion_matrix",
+        "sciona.atoms.ml.metrics.confusion_matrix_error_analysis.normalize_confusion_matrix",
+        "sciona.atoms.ml.metrics.regression_metric_suite.compute_l2_regression_metrics",
+        "sciona.atoms.ml.metrics.regression_metric_suite.compute_raw_residuals",
+        "sciona.atoms.ml.metrics.roc_pr_threshold_selection.compute_roc_coordinates",
+        "sciona.atoms.ml.metrics.roc_pr_threshold_selection.select_optimal_threshold_youden",
+        "sciona.atoms.ml.model_selection.bayesian_hyperparameter_search.propose_next_parameters",
+        "sciona.atoms.ml.model_selection.grid_search_cross_validation.fit_cv_candidate",
+        "sciona.atoms.ml.model_selection.grid_search_cross_validation.generate_cartesian_grid"
+      ],
+      "audit_ready": 1964,
+      "blockers": {
+        "audit_rollup": 65,
+        "dejargonized_description": 363,
+        "io_specs": 41,
+        "parameters": 65,
+        "technical_description": 363,
+        "trust_review": 65
+      },
+      "publishable": 1964,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-physics": {
+      "atoms": 103,
+      "audit_gap": 34,
+      "audit_gap_sample": [
+        "sciona.atoms.particle_tracking.detector_corrections.coordinate_rescaling_for_knn",
+        "sciona.atoms.particle_tracking.detector_corrections.perturbative_cap_correction",
+        "sciona.atoms.particle_tracking.detector_corrections.perturbative_cylinder_correction",
+        "sciona.atoms.particle_tracking.track_matching.bayesian_neighbor_evaluation",
+        "sciona.atoms.particle_tracking.track_matching.greedy_track_commit",
+        "sciona.atoms.particle_tracking.track_matching.helix_cap_intersection",
+        "sciona.atoms.particle_tracking.track_matching.helix_cylinder_intersection",
+        "sciona.atoms.physics.cosmology.flux_k_correction",
+        "sciona.atoms.physics.skyfield.calculate_vector_angle",
+        "sciona.atoms.physics.skyfield.compute_spherical_coordinate_rates",
+        "sciona.atoms.physics.tempo_jl.find_year.cal_hms_to_jd",
+        "sciona.atoms.physics.tempo_jl.find_year.fd_to_hmsf",
+        "sciona.atoms.physics.tempo_jl.find_year.hms_to_fd",
+        "sciona.atoms.physics.tempo_jl.find_year.is_leap_year",
+        "sciona.atoms.physics.tempo_jl.find_year.jd_to_cal_hms",
+        "sciona.atoms.physics.tempo_jl.find_year.last_j2000_day_of_year",
+        "sciona.atoms.physics.tempo_jl.find_year.tai_to_utc",
+        "sciona.atoms.physics.tempo_jl.find_year.utc_to_tai",
+        "sciona.atoms.physics.tempo_jl.tai2utc.cal_hms_to_jd",
+        "sciona.atoms.physics.tempo_jl.tai2utc.fd_to_hmsf"
+      ],
+      "audit_ready": 69,
+      "blockers": {
+        "audit_rollup": 25,
+        "dejargonized_description": 27,
+        "parameters": 25,
+        "references": 1,
+        "technical_description": 27,
+        "trust_review": 32
+      },
+      "publishable": 69,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-robotics": {
+      "atoms": 52,
+      "audit_gap": 0,
+      "audit_gap_sample": [],
+      "audit_ready": 52,
+      "blockers": {},
+      "publishable": 52,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    },
+    "sciona-atoms-signal": {
+      "atoms": 168,
+      "audit_gap": 85,
+      "audit_gap_sample": [
+        "sciona.atoms.image.filters.gaussian_filter_smoothing.apply_separable_convolution_2d",
+        "sciona.atoms.image.filters.gaussian_filter_smoothing.compute_gaussian_1d_kernel",
+        "sciona.atoms.image.filters.image_histogram_equalization.compute_tile_cdfs",
+        "sciona.atoms.image.filters.median_filter_denoising.apply_median_filtering_pass",
+        "sciona.atoms.image.filters.morphological_open_close.generate_structuring_element",
+        "sciona.atoms.image.restoration.deconvolution_wiener_restoration.apply_spectral_wiener_filtering",
+        "sciona.atoms.image.restoration.deconvolution_wiener_restoration.compute_psf_to_otf",
+        "sciona.atoms.image.restoration.deconvolution_wiener_restoration.compute_wiener_filter_kernel",
+        "sciona.atoms.image.segmentation.blob_log_dog_detection.generate_log_scale_space",
+        "sciona.atoms.image.segmentation.canny_edge_detection.apply_hysteresis_thresholding",
+        "sciona.atoms.image.segmentation.canny_edge_detection.apply_non_maximum_suppression",
+        "sciona.atoms.image.segmentation.canny_edge_detection.compute_image_gradients",
+        "sciona.atoms.image.segmentation.connected_component_labeling.label_binary_components",
+        "sciona.atoms.image.segmentation.hough_transform_detection.compute_hough_accumulator",
+        "sciona.atoms.image.segmentation.template_matching_correlation.compute_correlation_map",
+        "sciona.atoms.image.segmentation.watershed_segmentation.apply_watershed_flooding",
+        "sciona.atoms.image.segmentation.watershed_segmentation.compute_distance_transform",
+        "sciona.atoms.image.segmentation.watershed_segmentation.find_watershed_markers",
+        "sciona.atoms.signal.analysis.hilbert_envelope_phase.compute_analytic_signal",
+        "sciona.atoms.signal.analysis.peak_detection_prominence_width.compute_peak_prominences"
+      ],
+      "audit_ready": 83,
+      "blockers": {
+        "audit_rollup": 44,
+        "dejargonized_description": 78,
+        "io_specs": 43,
+        "parameters": 44,
+        "references": 8,
+        "technical_description": 78,
+        "trust_review": 44
+      },
+      "publishable": 83,
+      "published_without_audit_ready": 0,
+      "published_without_audit_ready_fqdns": []
+    }
+  },
+  "totals": {
+    "atoms": 3380,
+    "audit_gap": 827,
+    "audit_ready": 2553,
+    "publishable": 2553,
+    "published_without_audit_ready": 0,
+    "published_without_audit_ready_fqdns": []
+  }
+}

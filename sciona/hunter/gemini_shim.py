@@ -53,7 +53,13 @@ def _stage_gemini_home(runtime_dir: Path, source_home: Path | None = None) -> Pa
     source_gemini_dir = source_home / ".gemini"
     staged_gemini_dir = staged_home / ".gemini"
     if source_gemini_dir.exists():
-        shutil.copytree(source_gemini_dir, staged_gemini_dir, dirs_exist_ok=True)
+        shutil.copytree(
+            source_gemini_dir,
+            staged_gemini_dir,
+            dirs_exist_ok=True,
+            symlinks=True,
+            ignore_dangling_symlinks=True,
+        )
     else:
         staged_gemini_dir.mkdir(parents=True, exist_ok=True)
 

@@ -102,7 +102,11 @@ def test_e2e_benchmark_scripts_enforce_full_framework_mode() -> None:
     benchmark_script = (repo_root / "benchmarks" / "e2e_benchmark.sh").read_text()
     benchmark_all_script = (repo_root / "benchmarks" / "e2e_benchmark_all.sh").read_text()
 
-    assert "SCIONA_SEMANTIC_INDEX_BACKEND=faiss" in benchmark_script
+    assert 'E2E_SEMANTIC_INDEX_BACKEND:-postgres' in benchmark_script
+    assert 'E2E_INCLUDE_SYNTHESIS:-true' in benchmark_script
+    assert "if '$label' == 'raw_llm':" in benchmark_script
+    assert "benchmark_passed.txt" in benchmark_script
+    assert 'exit 1' in benchmark_script
     assert "postprocess.json" in benchmark_script
     assert "summary.json" in benchmark_script
     assert "summary_table.txt" in benchmark_script

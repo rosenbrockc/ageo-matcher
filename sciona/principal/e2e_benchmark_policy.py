@@ -182,7 +182,7 @@ def evaluate_e2e_variant(
     matches_verified: int,
     shortcut_flags: dict[str, bool] | None = None,
     declared_shortcuts: list[str] | None = None,
-    executable: bool = True,
+    executable: bool = False,
 ) -> dict[str, Any]:
     """Evaluate one benchmark variant against the Phase 7 policy contract."""
     path = Path(mode_dir)
@@ -358,7 +358,7 @@ def evaluate_e2e_benchmark_report(
             matches_verified=int(payload.get("matches_verified", 0) or 0),
             shortcut_flags=shortcut_flags,
             declared_shortcuts=declared_shortcuts,
-            executable=bool(payload.get("executable", True)),
+            executable=bool(payload.get("executable", False)),
         )
 
     overall_shortcut = enforce_anti_shortcut_policy(

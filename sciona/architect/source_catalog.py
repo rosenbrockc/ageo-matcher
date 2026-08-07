@@ -1023,11 +1023,13 @@ def seed_catalog_from_sources(
                 seen_names.add(name)
 
         for name, meta in ast_entries.items():
-            if name in seen_names or catalog.get(name) is not None:
+            if name in seen_names:
                 continue
             if report is not None:
                 report.source_ast_candidates += 1
             _bump_source_breakdown(report, source.name, "ast_candidates")
+            if catalog.get(name) is not None:
+                continue
             built = _registration_to_primitive(
                 source,
                 name,

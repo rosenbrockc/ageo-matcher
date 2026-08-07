@@ -603,7 +603,16 @@ def validate_required_benchmark_artifacts(
     ),
 ) -> BenchmarkPolicyReport:
     """Require the minimum artifact set needed to judge search behavior."""
-    missing = [key for key in required_keys if key not in artifacts]
+    missing = [
+        key
+        for key in required_keys
+        if key not in artifacts
+        or artifacts[key] is None
+        or (
+            isinstance(artifacts[key], (str, bytes, list, tuple, set, dict))
+            and not artifacts[key]
+        )
+    ]
     return BenchmarkPolicyReport(
         passed=not missing,
         violations=tuple(f"missing_artifact:{key}" for key in missing),

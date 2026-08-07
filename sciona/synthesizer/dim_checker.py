@@ -98,17 +98,38 @@ def check_dimensional_consistency(
         # Try to get dims from the GlueEdge itself first (set by assembler)
         src_dim: DimensionalSignature | None = None
         tgt_dim: DimensionalSignature | None = None
+        invalid_source_dim = False
+        invalid_target_dim = False
 
         if edge.source_dim:
             try:
                 src_dim = DimensionalSignature.from_compact(edge.source_dim)
             except Exception:
-                pass
+                invalid_source_dim = True
         if edge.target_dim:
             try:
                 tgt_dim = DimensionalSignature.from_compact(edge.target_dim)
             except Exception:
-                pass
+                invalid_target_dim = True
+
+        if invalid_source_dim or invalid_target_dim:
+            result.passed = False
+            result.errors.append(
+                DimError(
+                    source_id=edge.source_id,
+                    target_id=edge.target_id,
+                    output_name=edge.output_name,
+                    input_name=edge.input_name,
+                    source_dim=edge.source_dim or "",
+                    target_dim=edge.target_dim or "",
+                    message=(
+                        "Malformed dimensional annotation on edge "
+                        f"{src_unit.name}.{edge.output_name} -> "
+                        f"{tgt_unit.name}.{edge.input_name}"
+                    ),
+                )
+            )
+            continue
 
         # Fall back to registry/IOSpec lookup
         if src_dim is None:

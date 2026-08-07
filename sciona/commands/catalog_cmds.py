@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -83,3 +84,82 @@ async def _cmd_catalog_sync(args: argparse.Namespace) -> None:
 
     output_path.write_bytes(payload)
     print(f"Manifest written to {output_path}")
+
+
+async def _cmd_catalog_search(args: argparse.Namespace) -> None:
+    from sciona.provider_runtime import RemoteCatalogClient
+
+    rows = await RemoteCatalogClient(args.api_url).search(
+        args.query,
+        domain_tag=args.domain_tag,
+        limit=args.limit,
+    )
+    print(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
+
+
+async def _cmd_catalog_install(args: argparse.Namespace) -> None:
+    from sciona.provider_runtime import ProviderInstaller, RemoteCatalogClient
+
+    candidate = await RemoteCatalogClient(args.api_url).find(args.fqdn)
+    callable_object = ProviderInstaller().materialize(candidate)
+    print(f"Installed {candidate.provider.distribution_name} for {candidate.fqdn}")
+    print(f"Resolved {callable_object.__module__}.{callable_object.__name__}")
+
+
+def _cmd_catalog_publish_providers(args: argparse.Namespace) -> None:
+    from sciona.provider_publication import publish_provider_catalog
+
+    result = publish_provider_catalog(
+        workspace_root=Path(args.workspace_root) if args.workspace_root else None,
+        apply=args.apply,
+        ensure_owner=args.ensure_owner,
+        database_url=args.database_url,
+        allow_duplicate_fqdns=args.allow_duplicate_fqdns,
+        include_backfills=not args.skip_backfills,
+        include_embeddings=not args.skip_embeddings,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True, default=str))
+
+
+def _cmd_catalog_reconcile_providers(args: argparse.Namespace) -> None:
+    from sciona.provider_reconciliation import (
+        apply_provider_reconciliation,
+        reconcile_provider_catalog,
+    )
+
+    workspace_root = Path(args.workspace_root or Path.cwd())
+    if args.apply or args.retire_unresolved:
+        result = apply_provider_reconciliation(
+            workspace_root,
+            retire_unresolved=args.retire_unresolved,
+        )
+        final_report = result["after"]
+    else:
+        result = reconcile_provider_catalog(workspace_root)
+        final_report = result
+    print(json.dumps(result, indent=2, sort_keys=True))
+    if args.strict and final_report["counts"].get("unresolved", 0):
+        raise SystemExit(1)
+
+
+def _cmd_catalog_validate_provider_release(args: argparse.Namespace) -> None:
+    from sciona.provider_release import validate_provider_release
+
+    report = validate_provider_release(args.repo, build=not args.no_build)
+    print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    if not report.ok:
+        raise SystemExit(1)
+
+
+def _cmd_catalog_audit_providers(args: argparse.Namespace) -> None:
+    from sciona.catalog_audit import audit_catalog
+
+    database_url = (
+        args.database_url
+        or os.environ.get("SUPABASE_DATABASE_URL", "").strip()
+        or "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+    )
+    report = audit_catalog(database_url)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    if args.strict and report["totals"]["audit_gap"]:
+        raise SystemExit(1)

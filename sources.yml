@@ -45,4 +45,5 @@ sources:
     package: sciona.atoms.robotics
   - name: sciona-atoms
     path: ../sciona-atoms
+    python_path: src
     package: sciona.atoms

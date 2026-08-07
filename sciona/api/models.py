@@ -186,6 +186,17 @@ class UpdateTargetRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class ProviderInstallInfo(BaseModel):
+    provider_id: str
+    distribution_name: str
+    distribution_version: str
+    install_requirement: str
+    import_module: str
+    import_symbol: str
+    wheel_url: str = ""
+    wheel_sha256: str = ""
+
+
 class CatalogEntry(BaseModel):
     fqdn: str
     description: str
@@ -196,6 +207,8 @@ class CatalogEntry(BaseModel):
     overall_verdict: str = ""
     risk_tier: str = ""
     trust_readiness: str = ""
+    provider: ProviderInstallInfo | None = None
+    score: float = 0.0
 
 
 # ---------------------------------------------------------------------------

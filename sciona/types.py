@@ -37,6 +37,14 @@ class Declaration:
     source_lib: str = ""
     prover: Prover = Prover.LEAN4
     raw_code: str = ""
+    provider_id: str = ""
+    distribution_name: str = ""
+    distribution_version: str = ""
+    install_requirement: str = ""
+    import_module: str = ""
+    import_symbol: str = ""
+    wheel_url: str = ""
+    wheel_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -133,6 +141,14 @@ class MatchResult:
                 "source_lib": d.source_lib,
                 "prover": d.prover.value,
                 "raw_code": d.raw_code,
+                "provider_id": d.provider_id,
+                "distribution_name": d.distribution_name,
+                "distribution_version": d.distribution_version,
+                "install_requirement": d.install_requirement,
+                "import_module": d.import_module,
+                "import_symbol": d.import_symbol,
+                "wheel_url": d.wheel_url,
+                "wheel_sha256": d.wheel_sha256,
             }
 
         def _candidate_dict(c: CandidateMatch) -> dict:

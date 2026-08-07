@@ -77,6 +77,9 @@ class TestConceptType:
             "observability",
             "custom",
             "external_tool",
+            "external_knowledge",
+            "loss_function",
+            "ml_model_selection",
         }
         assert {ct.value for ct in ConceptType} == expected
 

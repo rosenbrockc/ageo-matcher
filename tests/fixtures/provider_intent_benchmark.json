@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0",
+  "cases": [
+    {
+      "id": "general-shortest-path",
+      "provider": "sciona-atoms",
+      "query": "compute shortest path distances from selected source nodes",
+      "acceptable_fqdns": [
+        "sciona.atoms.scipy.sparse_graph.single_source_shortest_path"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "biology-interaction-graph",
+      "provider": "sciona-atoms-bio",
+      "query": "construct a weighted interaction graph for compatible ligand and receptor features",
+      "acceptable_fqdns": [
+        "sciona.atoms.bio.molecular_docking.build_interaction_graph.networkx_weighted_graph_materialization",
+        "sciona.atoms.bio.molecular_docking.build_interaction_graph.weighted_interaction_edge_derivation"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "deep-learning-3d-feature-pooling",
+      "provider": "sciona-atoms-dl",
+      "query": "extract the center cube from a three dimensional feature map with max pooling",
+      "acceptable_fqdns": [
+        "sciona.atoms.dl.detection.center_feature_extraction_3d"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "fintech-vwap-execution",
+      "provider": "sciona-atoms-fintech",
+      "query": "apply a VWAP execution strategy to reduce remaining inventory for a trade quantity",
+      "acceptable_fqdns": [
+        "sciona.atoms.fintech.quant_engine.execute_vwap"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "machine-learning-conditioning",
+      "provider": "sciona-atoms-ml",
+      "query": "diagnose numerical matrix conditioning from largest and smallest singular values",
+      "acceptable_fqdns": [
+        "sciona.atoms.ml.model_selection.diagnostics.compute_condition_number",
+        "sciona.atoms.numerical.linear_algebra.lu_solve.estimate_lu_condition_number"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "physics-periodic-clustering",
+      "provider": "sciona-atoms-physics",
+      "query": "label point cloud clusters with periodic friends of friends",
+      "acceptable_fqdns": [
+        "sciona.atoms.physics.jFOF.find_fof_clusters"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "signal-transform-energy",
+      "provider": "sciona-atoms-signal",
+      "query": "check whether a frequency transform conserves total signal energy",
+      "acceptable_fqdns": [
+        "sciona.atoms.expansion.signal_transform.validate_parseval_energy"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "computer-science-priority-queue-shortest-path",
+      "provider": "sciona-atoms-cs",
+      "query": "compute nonnegative shortest path distances using a priority queue",
+      "acceptable_fqdns": [
+        "sciona.atoms.combinatorial.graph.dijkstra_shortest_path.run_dijkstra_heap",
+        "sciona.atoms.scipy.sparse_graph.single_source_shortest_path"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "geospatial-wgs84-to-ecef",
+      "provider": "sciona-atoms-geo",
+      "query": "convert WGS84 latitude longitude and altitude to Earth centered Earth fixed coordinates",
+      "acceptable_fqdns": [
+        "sciona.atoms.geo.geospatial_sensors.lla_to_ecef"
+      ],
+      "top_k": 10
+    },
+    {
+      "id": "robotics-leg-flex-deflection",
+      "provider": "sciona-atoms-robotics",
+      "query": "estimate per leg flex deflection from hip effort on stance legs",
+      "acceptable_fqdns": [
+        "sciona.atoms.robotics.pronto.flex_estimator.estimate_flex_deflection"
+      ],
+      "top_k": 10
+    }
+  ]
+}

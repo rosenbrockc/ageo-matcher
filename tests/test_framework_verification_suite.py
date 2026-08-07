@@ -1,46 +1,37 @@
 """Framework Verification Suite implementing the 5-point verification strategy.
 
-1. Dynamic E2E Task Synthesis Tests (No Mocks):
-   Uses a mock/task-aware LLM for decomposition, but executes actual semantic index,
-   HunterAgent matching, assembly, and Python compilation/type-checking (no stubs/mocks).
+Provider discovery, selection, installation, and execution are covered in
+``test_provider_runtime_e2e.py`` using a cold virtual environment and candidates
+from signal processing, physics, and fintech providers. This module retains the
+supporting adversarial, simulation, refinement, and catalog checks.
 
-2. Adversarial Retrieval Testing:
+1. Adversarial Retrieval Testing:
    Validates query expansion/matching on perturbed (spelling-error or synonym) prompts.
 
-3. Ghost Witness Simulation Validation:
+2. Ghost Witness Simulation Validation:
    Asserts that GhostSim flags invalid data types/shapes/sorting properties before assembly.
 
-4. Multi-trial Escalate-and-Refine Validation:
+3. Multi-trial Escalate-and-Refine Validation:
    Checks if the Orchestrator loop dynamically recovers and decomposes ungroundable leaves.
 
-5. Static Catalog Coverage Verification:
+4. Static Catalog Coverage Verification:
    Ensures all leaf nodes in ingested catalog CDGs resolve to registered provider atoms.
 """
 
 from __future__ import annotations
 
-import asyncio
-import os
 import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 from sciona.architect.models import ConceptType, AlgorithmicNode, NodeStatus, IOSpec, DependencyEdge
-from sciona.architect.handoff import CDGExport, to_pdg_nodes
-from sciona.hunter.graph import HunterAgent
-from sciona.judge.checker import VerificationOracleImpl
-from sciona.judge.python_env import PythonEnvironment
+from sciona.architect.handoff import CDGExport
 from sciona.orchestrator import run_orchestration
-from sciona.synthesizer.pipeline import assemble_and_check
-from sciona.synthesizer.ghost_sim import run_ghost_simulation, GhostSimReport
+from sciona.synthesizer.ghost_sim import run_ghost_simulation
 from sciona.types import PDGNode, Prover, CandidateMatch, Declaration, MatchResult, VerificationResult, VerificationLevel
-from sciona.shared_context import SharedContextStore
 
 from tests.helpers.match_regression import (
     build_sciona_atoms_declarations,
     StaticSemanticIndex,
-    FixtureOracle,
-    DeterministicHunterLLM,
 )
 
 
@@ -70,130 +61,8 @@ def get_all_declarations() -> list[Declaration]:
     return decls
 
 
-class MockProofEnvironment:
-    """Mock ProofEnvironment that matches the protocols.ProofEnvironment interface."""
-
-    def __init__(self, python_env: PythonEnvironment) -> None:
-        self._python_env = python_env
-
-    @property
-    def prover_name(self) -> str:
-        return "python"
-
-    async def _run(self, code: str) -> any:
-        return await self._python_env._run(code)
-
-    async def check_term(self, term: str, expected_type: str) -> tuple[bool, str]:
-        return await self._python_env.check_term(term, expected_type)
-
-
 # =================================══════════════════════════════════════════
-# Point 1: Dynamic E2E Task Synthesis Tests (No Mocks)
-# =================================══════════════════════════════════════════
-
-@pytest.mark.asyncio
-async def test_dynamic_e2e_task_synthesis() -> None:
-    # 1. Build semantic index over real library declarations
-    decls = get_all_declarations()
-    assert len(decls) > 0, "No declarations found in candidate roots."
-    index = StaticSemanticIndex(decls)
-
-    # 2. Build direct goal CDG mapping target leaves
-    cdg = CDGExport(
-        nodes=[
-            AlgorithmicNode(
-                node_id="filt",
-                name="Filter Signal",
-                description="Apply FIR bandpass filtering to an ECG waveform.",
-                concept_type=ConceptType.SIGNAL_FILTER,
-                status=NodeStatus.ATOMIC,
-                depth=1,
-                inputs=[IOSpec(name="signal", type_desc="np.ndarray")],
-                outputs=[IOSpec(name="signal", type_desc="np.ndarray")],
-            ),
-            AlgorithmicNode(
-                node_id="det",
-                name="Detect Peaks",
-                description="Detect R-peak sample indices from a filtered ECG signal.",
-                concept_type=ConceptType.DATA_EXTRACTION,
-                status=NodeStatus.ATOMIC,
-                depth=1,
-                inputs=[IOSpec(name="signal", type_desc="np.ndarray")],
-                outputs=[IOSpec(name="events", type_desc="np.ndarray")],
-            ),
-            AlgorithmicNode(
-                node_id="rate",
-                name="Compute Event Rate",
-                description="Compute instantaneous heart rate from R-peak indices.",
-                concept_type=ConceptType.ANALYSIS,
-                status=NodeStatus.ATOMIC,
-                depth=1,
-                inputs=[IOSpec(name="events", type_desc="np.ndarray")],
-                outputs=[IOSpec(name="rate", type_desc="np.ndarray")],
-            ),
-        ],
-        edges=[
-            DependencyEdge(
-                source_id="filt",
-                target_id="det",
-                output_name="signal",
-                input_name="signal",
-                source_type="np.ndarray",
-                target_type="np.ndarray",
-            ),
-            DependencyEdge(
-                source_id="det",
-                target_id="rate",
-                output_name="events",
-                input_name="events",
-                source_type="np.ndarray",
-                target_type="np.ndarray",
-            ),
-        ],
-    )
-
-    # 3. Setup Oracle allowing matches to the real ECG atoms
-    allowed_matches = {
-        "filt": {"sciona.atoms.signal_processing.biosppy.ecg.bandpass_filter"},
-        "det": {"sciona.atoms.signal_processing.biosppy.ecg.r_peak_detection"},
-        "rate": {"sciona.atoms.signal_processing.biosppy.ecg.heart_rate_computation"},
-    }
-    oracle = FixtureOracle(allowed_matches)
-
-    # 4. Run Hunter matching on PDG nodes
-    pdg_nodes = to_pdg_nodes(cdg, prover=Prover.PYTHON, strict=False)
-    hunter = HunterAgent(
-        index=index,
-        oracle=oracle,
-        llm=DeterministicHunterLLM(),
-        max_iterations=2,
-        top_k_verify=10,
-        search_k=50,
-    )
-
-    match_results: list[MatchResult] = []
-    for node in pdg_nodes:
-        res = await hunter.find_match(node)
-        assert res.success, f"Failed matching node '{node.predicate_id}': {res}"
-        match_results.append(res)
-
-    # 5. Run assembly and compilation/checking
-    python_env = PythonEnvironment()
-    mock_env = MockProofEnvironment(python_env)
-
-    assembly_result = await assemble_and_check(
-        cdg,
-        match_results,
-        env=mock_env,
-        skip_ghost_sim=True,
-    )
-    assert assembly_result.compiled_ok, (
-        f"Compilation failed. Output:\n{assembly_result.feedback.raw_output}"
-    )
-
-
-# =================================══════════════════════════════════════════
-# Point 2: Adversarial Retrieval Testing
+# Point 1: Adversarial Retrieval Testing
 # =================================══════════════════════════════════════════
 
 def test_adversarial_retrieval() -> None:
@@ -219,7 +88,7 @@ def test_adversarial_retrieval() -> None:
 
 
 # =================================══════════════════════════════════════════
-# Point 3: Ghost Witness Simulation Validation (Fuzzing)
+# Point 2: Ghost Witness Simulation Validation (Fuzzing)
 # =================================══════════════════════════════════════════
 
 @pytest.mark.asyncio
@@ -330,7 +199,7 @@ async def test_ghost_witness_simulation_mismatch_detection() -> None:
 
 
 # =================================══════════════════════════════════════════
-# Point 4: Multi-trial Escalate-and-Refine Validation
+# Point 3: Multi-trial Escalate-and-Refine Validation
 # =================================══════════════════════════════════════════
 
 class MockChild:
@@ -414,7 +283,7 @@ async def test_multi_trial_escalate_and_refine() -> None:
 
 
 # =================================══════════════════════════════════════════
-# Point 5: Static Catalog Coverage Verification
+# Point 4: Static Catalog Coverage Verification
 # =================================══════════════════════════════════════════
 
 @pytest.mark.asyncio

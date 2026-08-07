@@ -101,7 +101,7 @@ class SettleSignal:
 
 
 async def _call_activity(fn, *args):
-    if TEMPORAL_AVAILABLE:
+    if _temporal_runtime_active():
         return await workflow.execute_activity(
             fn,
             *args,
@@ -111,6 +111,16 @@ async def _call_activity(fn, *args):
     if inspect.isawaitable(result):
         return await result
     return result
+
+
+def _temporal_runtime_active() -> bool:
+    if not TEMPORAL_AVAILABLE:
+        return False
+    try:
+        workflow.info()
+    except Exception:
+        return False
+    return True
 
 
 @workflow.defn
@@ -131,6 +141,7 @@ class BountyWorkflow:
     @workflow.run
     async def run(self, input: BountyWorkflowInput) -> str:
         self._input = input
+        temporal_runtime = _temporal_runtime_active()
         deadline_at: float | None = None
         if input.deadline_seconds > 0:
             deadline_at = asyncio.get_running_loop().time() + float(input.deadline_seconds)
@@ -145,7 +156,7 @@ class BountyWorkflow:
                 self._terminal_status = "expired"
                 break
 
-            if TEMPORAL_AVAILABLE:
+            if temporal_runtime:
                 await workflow.wait_condition(
                     lambda: self._terminal_status is not None
                     or (

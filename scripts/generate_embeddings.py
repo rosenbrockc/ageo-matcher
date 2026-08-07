@@ -3,34 +3,28 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import logging
 import os
 import time
 from datetime import datetime, timezone
 from typing import Any
 
+from sciona.catalog_embeddings import (
+    DEFAULT_DIMENSIONS,
+    DEFAULT_MODEL,
+    CatalogEmbeddingConfig,
+    build_embedding_input,
+    compute_input_hash,
+    create_embeddings_with_retry,
+    embedding_config_from_env,
+)
+
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_MODEL = DEFAULT_MODEL
+EMBEDDING_DIMENSIONS = DEFAULT_DIMENSIONS
 BATCH_SIZE = 100
-
-
-def build_embedding_input(atom: dict[str, Any]) -> str:
-    """Assemble the text that will be embedded for a single atom."""
-    parts = [
-        atom.get("fqdn", "") or "",
-        atom.get("technical_description", "") or "",
-        atom.get("dejargonized_description", "") or "",
-        " ".join(atom.get("domain_tags", []) or []),
-    ]
-    return "\n".join(part for part in parts if part)
-
-
-def compute_input_hash(text: str) -> str:
-    """Return the short hash stored alongside embeddings for drift detection."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+FETCH_PAGE_SIZE = 1000
 
 
 def _utc_now() -> str:
@@ -50,14 +44,58 @@ def _service_key() -> str:
     raise KeyError("SUPABASE_SERVICE_ROLE_KEY")
 
 
-def embed_batch(openai_client: Any, texts: list[str]) -> list[list[float]]:
+def embed_batch(
+    openai_client: Any,
+    texts: list[str],
+    *,
+    config: CatalogEmbeddingConfig | None = None,
+) -> list[list[float]]:
     """Call the embeddings API for a batch of texts."""
-    response = openai_client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=texts,
-        dimensions=EMBEDDING_DIMENSIONS,
+    config = config or embedding_config_from_env()
+    _response, embeddings = create_embeddings_with_retry(
+        openai_client,
+        texts,
+        config=config,
     )
-    return [item.embedding for item in response.data]
+    return embeddings
+
+
+def _embedding_row(
+    *,
+    atom_id: str,
+    embedding: list[float],
+    text: str,
+    config: CatalogEmbeddingConfig,
+) -> dict[str, Any]:
+    return {
+        "atom_id": atom_id,
+        "embedding": embedding,
+        "provider": config.provider,
+        "model": config.model,
+        "model_revision": config.model_revision,
+        "response_model": config.model,
+        "dimensions": config.dimensions,
+        "input_schema_version": config.input_schema_version,
+        "embedding_space_id": config.space_id,
+        "input_text_hash": compute_input_hash(text),
+        "updated_at": _utc_now(),
+    }
+
+
+def _activate_configuration(supabase: Any, config: CatalogEmbeddingConfig) -> None:
+    supabase.table("catalog_embedding_configuration").upsert(
+        {
+            "configuration_id": True,
+            "provider": config.provider,
+            "model": config.model,
+            "model_revision": config.model_revision,
+            "dimensions": config.dimensions,
+            "input_schema_version": config.input_schema_version,
+            "embedding_space_id": config.space_id,
+            "activated_at": _utc_now(),
+        },
+        on_conflict="configuration_id",
+    ).execute()
 
 
 def _upsert_embeddings(supabase: Any, rows: list[dict[str, Any]]) -> None:
@@ -68,8 +106,21 @@ def _upsert_embeddings(supabase: Any, rows: list[dict[str, Any]]) -> None:
 
 def backfill(supabase: Any, openai_client: Any) -> None:
     """Generate embeddings for publishable atoms that need them."""
-    atoms = supabase.rpc("get_atoms_needing_embeddings", {}).execute().data or []
+    config = embedding_config_from_env()
+    atoms: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        query = supabase.rpc("get_atoms_needing_embeddings", config.rpc_params())
+        supports_range = hasattr(query, "range")
+        if supports_range:
+            query = query.range(offset, offset + FETCH_PAGE_SIZE - 1)
+        page = query.execute().data or []
+        atoms.extend(page)
+        if len(page) < FETCH_PAGE_SIZE or not supports_range:
+            break
+        offset += FETCH_PAGE_SIZE
     if not atoms:
+        _activate_configuration(supabase, config)
         logger.info("No atoms need embeddings.")
         return
 
@@ -77,26 +128,48 @@ def backfill(supabase: Any, openai_client: Any) -> None:
     for index in range(0, len(atoms), BATCH_SIZE):
         batch = atoms[index : index + BATCH_SIZE]
         texts = [build_embedding_input(atom) for atom in batch]
-        embeddings = embed_batch(openai_client, texts)
-        timestamp = _utc_now()
+        atom_ids = [str(atom["atom_id"]) for atom in batch]
+        try:
+            embeddings = embed_batch(openai_client, texts, config=config)
+        except Exception as exc:
+            (
+                supabase.table("embedding_refresh_queue")
+                .update({"status": "failed", "error_message": str(exc)[:1000]})
+                .in_("atom_id", atom_ids)
+                .eq("status", "pending")
+                .execute()
+            )
+            raise
         rows = [
-            {
-                "atom_id": atom["atom_id"],
-                "embedding": embedding,
-                "model": EMBEDDING_MODEL,
-                "dimensions": EMBEDDING_DIMENSIONS,
-                "input_text_hash": compute_input_hash(text),
-                "updated_at": timestamp,
-            }
+            _embedding_row(
+                atom_id=atom["atom_id"],
+                embedding=embedding,
+                text=text,
+                config=config,
+            )
             for atom, text, embedding in zip(batch, texts, embeddings, strict=True)
         ]
         _upsert_embeddings(supabase, rows)
+        (
+            supabase.table("embedding_refresh_queue")
+            .update(
+                {
+                    "status": "completed",
+                    "completed_at": _utc_now(),
+                    "error_message": "",
+                }
+            )
+            .in_("atom_id", atom_ids)
+            .eq("status", "pending")
+            .execute()
+        )
         logger.info(
             "Upserted %d embeddings (batch %d)",
             len(rows),
             index // BATCH_SIZE + 1,
         )
         time.sleep(0.5)
+    _activate_configuration(supabase, config)
 
 
 def _mark_queue_entry(
@@ -138,6 +211,7 @@ def _fetch_atom_catalog_rows(supabase: Any, atom_ids: list[str]) -> dict[str, di
 
 def drain_queue(supabase: Any, openai_client: Any) -> None:
     """Process pending entries from embedding_refresh_queue."""
+    config = embedding_config_from_env()
     pending = (
         supabase.table("embedding_refresh_queue")
         .select("queue_id, atom_id, attempts")
@@ -185,18 +259,16 @@ def drain_queue(supabase: Any, openai_client: Any) -> None:
 
         text = build_embedding_input(atom)
         try:
-            embedding = embed_batch(openai_client, [text])[0]
+            embedding = embed_batch(openai_client, [text], config=config)[0]
             _upsert_embeddings(
                 supabase,
                 [
-                    {
-                        "atom_id": atom_id,
-                        "embedding": embedding,
-                        "model": EMBEDDING_MODEL,
-                        "dimensions": EMBEDDING_DIMENSIONS,
-                        "input_text_hash": compute_input_hash(text),
-                        "updated_at": _utc_now(),
-                    }
+                    _embedding_row(
+                        atom_id=atom_id,
+                        embedding=embedding,
+                        text=text,
+                        config=config,
+                    )
                 ],
             )
             _mark_queue_entry(
@@ -221,6 +293,7 @@ def drain_queue(supabase: Any, openai_client: Any) -> None:
 
 def embed_atom(supabase: Any, openai_client: Any, atom_id: str) -> None:
     """Re-embed a single publishable atom."""
+    config = embedding_config_from_env()
     atom = (
         supabase.table("catalog_atoms_served")
         .select(
@@ -236,18 +309,16 @@ def embed_atom(supabase: Any, openai_client: Any, atom_id: str) -> None:
         raise SystemExit(f"Atom {atom_id} not found in the served catalog")
 
     text = build_embedding_input(atom)
-    embedding = embed_batch(openai_client, [text])[0]
+    embedding = embed_batch(openai_client, [text], config=config)[0]
     _upsert_embeddings(
         supabase,
         [
-            {
-                "atom_id": atom_id,
-                "embedding": embedding,
-                "model": EMBEDDING_MODEL,
-                "dimensions": EMBEDDING_DIMENSIONS,
-                "input_text_hash": compute_input_hash(text),
-                "updated_at": _utc_now(),
-            }
+            _embedding_row(
+                atom_id=atom_id,
+                embedding=embedding,
+                text=text,
+                config=config,
+            )
         ],
     )
     logger.info("Embedded atom %s", atom_id)

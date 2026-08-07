@@ -42,16 +42,21 @@ def _load_semantic_index(
     *,
     backend_override: str | None = None,
 ) -> tuple["SemanticIndex", str]:
-    """Load semantic index with FAISS, falling back to lexical mode if needed."""
+    """Load the configured semantic index, preferring the global Postgres catalog."""
+    backend = str(
+        backend_override or getattr(config, "semantic_index_backend", "auto")
+    ).strip().lower()
+    if backend in {"postgres", "remote", "supabase"}:
+        from sciona.provider_runtime import PostgresSemanticIndex
+
+        return PostgresSemanticIndex(api_url=getattr(config, "api_url", None)), "postgres"
+
     from sciona.indexer.builder import SemanticIndexImpl, build_index_from_manifest_sqlite
     from sciona.indexer.embedder import create_embedder
     from sciona.indexer.faiss_store import FAISSStore
     from sciona.indexer.fallback_index import LexicalSemanticIndex
     from sciona.indexer.unified import CompositeSemanticIndex, SemanticIndexSource
 
-    backend = str(
-        backend_override or getattr(config, "semantic_index_backend", "auto")
-    ).strip().lower()
     if backend in {"lexical", "lexical_fallback"}:
         return LexicalSemanticIndex.load(index_dir), "lexical_forced"
 

@@ -24,6 +24,8 @@ def test_validate_required_benchmark_artifacts_reports_missing_keys() -> None:
     )
 
     assert report.passed is False
+    assert "missing_artifact:planning_artifact" in report.violations
+    assert "missing_artifact:trial_history" in report.violations
     assert "missing_artifact:skeleton_asset" in report.violations
     assert "missing_artifact:final_candidate" in report.violations
 

@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from sciona.api import deps as api_deps
-from sciona.api.models import CatalogEntry
+from sciona.api.models import CatalogEntry, ProviderInstallInfo
+from sciona.catalog_embeddings import (
+    CatalogEmbeddingConfig,
+    embedding_config_from_row,
+    ordered_response_embeddings,
+)
 
 router = APIRouter()
 
 
-def _catalog_entry_from_row(row: dict, *, default_kind: str) -> CatalogEntry:
+def _catalog_entry_from_row(
+    row: dict,
+    *,
+    default_kind: str,
+    provider: ProviderInstallInfo | None = None,
+) -> CatalogEntry:
     return CatalogEntry(
         fqdn=row["fqdn"],
         description=row.get("technical_description", "") or "",
@@ -20,7 +32,106 @@ def _catalog_entry_from_row(row: dict, *, default_kind: str) -> CatalogEntry:
         overall_verdict=row.get("overall_verdict", "") or "",
         risk_tier=row.get("risk_tier", "") or "",
         trust_readiness=row.get("trust_readiness", "") or "",
+        provider=provider,
+        score=float(
+            row.get("similarity")
+            or row.get("hybrid_score")
+            or row.get("fts_rank")
+            or 0.0
+        ),
     )
+
+
+async def _active_embedding_config(supabase) -> CatalogEmbeddingConfig | None:
+    try:
+        result = await supabase.rpc(
+            "get_active_embedding_configuration", {}
+        ).execute()
+    except Exception:
+        return None
+    data = result.data
+    if isinstance(data, list):
+        row = data[0] if data else None
+    else:
+        row = data
+    if not isinstance(row, dict) or not row:
+        return None
+    try:
+        config = embedding_config_from_row(row)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if row.get("embedding_space_id") != config.space_id:
+        return None
+    return config
+
+
+async def _embed_catalog_query(
+    query: str,
+    config: CatalogEmbeddingConfig,
+) -> list[float] | None:
+    """Embed a query on the API side so clients never need embedding credentials."""
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    try:
+        from openai import AsyncOpenAI
+    except ImportError:
+        return None
+    try:
+        response = await AsyncOpenAI(api_key=api_key).embeddings.create(
+            model=config.model,
+            input=[query],
+            dimensions=config.dimensions,
+        )
+        return ordered_response_embeddings(
+            response,
+            expected_count=1,
+            dimensions=config.dimensions,
+        )[0]
+    except Exception:
+        return None
+
+
+async def _provider_installations(supabase, fqdns: list[str]) -> dict[str, ProviderInstallInfo]:
+    if not fqdns:
+        return {}
+    try:
+        result = await (
+            supabase.table("catalog_atom_installations")
+            .select(
+                "fqdn,provider_id,distribution_name,distribution_version,"
+                "install_requirement,import_module,import_symbol,wheel_url,wheel_sha256"
+            )
+            .in_("fqdn", fqdns)
+            .execute()
+        )
+    except Exception:
+        return {}
+    return {
+        str(row["fqdn"]): ProviderInstallInfo(**row)
+        for row in (result.data or [])
+        if row.get("fqdn")
+    }
+
+
+async def _catalog_entries(
+    rows: list[dict],
+    *,
+    default_kind: str,
+    supabase,
+) -> list[CatalogEntry]:
+    installations = await _provider_installations(
+        supabase,
+        [str(row.get("fqdn", "")) for row in rows if row.get("fqdn")],
+    )
+    return [
+        _catalog_entry_from_row(
+            row,
+            default_kind=default_kind,
+            provider=installations.get(str(row.get("fqdn", ""))),
+        )
+        for row in rows
+    ]
 
 
 async def _fetch_artifact_benchmarks(
@@ -100,17 +211,26 @@ async def catalog_search(
     limit: int = Query(default=50, le=200),
     supabase=Depends(api_deps.get_supabase),
 ) -> list[CatalogEntry]:
-    """Full-text search across the atom catalog."""
+    """Hybrid semantic search across the Postgres-backed atom catalog."""
     if q:
         try:
+            embedding_config = await _active_embedding_config(supabase)
+            query_embedding = (
+                await _embed_catalog_query(q, embedding_config)
+                if embedding_config is not None
+                else None
+            )
+            params = {
+                "query_text": q,
+                "mode": "hybrid" if query_embedding is not None else "fts",
+                "result_limit": limit,
+                "result_offset": 0,
+            }
+            if query_embedding is not None:
+                params["query_embedding"] = query_embedding
             rpc_result = await supabase.rpc(
                 "search_atoms_hybrid",
-                {
-                    "query_text": q,
-                    "mode": "fts",
-                    "result_limit": limit,
-                    "result_offset": 0,
-                },
+                params,
             ).execute()
             rows = rpc_result.data or []
             if domain_tag:
@@ -119,10 +239,10 @@ async def catalog_search(
                     for row in rows
                     if domain_tag in (row.get("domain_tags") or [])
                 ]
-            return [
-                _catalog_entry_from_row(row, default_kind="atom")
-                for row in rows[:limit]
-            ]
+            if rows:
+                return await _catalog_entries(
+                    rows[:limit], default_kind="atom", supabase=supabase
+                )
         except Exception:
             pass
     query = supabase.table("catalog_atoms_served").select(
@@ -135,10 +255,9 @@ async def catalog_search(
     if domain_tag:
         query = query.contains("domain_tags", [domain_tag])
     result = await query.limit(limit).execute()
-    return [
-        _catalog_entry_from_row(row, default_kind="atom")
-        for row in (result.data or [])
-    ]
+    return await _catalog_entries(
+        result.data or [], default_kind="atom", supabase=supabase
+    )
 
 
 @router.get("/atom/{fqdn:path}")

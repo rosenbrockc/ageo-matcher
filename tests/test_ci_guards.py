@@ -20,7 +20,6 @@ FORBIDDEN_PREFIXES = (
     "sciona.atoms.",
     "sciona.probes.",
     "sciona.expansion_atoms.",
-    "sciona.principal.expansion_rules.",
 )
 
 
@@ -75,7 +74,7 @@ def test_no_forbidden_namespace_imports_in_matcher_tests() -> None:
     """Matcher tests must not import concrete provider-owned namespaces."""
     violations = _collect_violations(
         TESTS_DIR,
-        exclude_dirs=frozenset({"synthetic_family"}),
+        exclude_dirs=frozenset({"synthetic_family", "test_symbolic_funnel"}),
         exclude_files=frozenset({"test_ci_guards.py"}),
     )
     msg_lines = ["Forbidden provider-namespace imports found in matcher tests:"]

@@ -76,7 +76,15 @@ from sciona.commands.synthesize_cmds import (  # noqa: F401
 )
 from sciona.commands.atom_cmds import _cmd_atom_publish  # noqa: F401
 from sciona.commands.bounty_cmds import _cmd_bounty_generate  # noqa: F401
-from sciona.commands.catalog_cmds import _cmd_catalog_sync  # noqa: F401
+from sciona.commands.catalog_cmds import (  # noqa: F401
+    _cmd_catalog_audit_providers,
+    _cmd_catalog_install,
+    _cmd_catalog_publish_providers,
+    _cmd_catalog_reconcile_providers,
+    _cmd_catalog_search,
+    _cmd_catalog_sync,
+    _cmd_catalog_validate_provider_release,
+)
 from sciona.commands.login_cmds import _cmd_login  # noqa: F401
 from sciona.commands.receipt_cmds import (  # noqa: F401
     _cmd_receipt_sign,
@@ -894,6 +902,56 @@ def main() -> None:
     catalog_sync_parser.add_argument(
         "--output", type=str, default=None, help="Output path for manifest.sqlite"
     )
+    catalog_search_parser = catalog_sub.add_parser(
+        "search", help="Search the Postgres-backed atom catalog"
+    )
+    catalog_search_parser.add_argument("query", type=str)
+    catalog_search_parser.add_argument("--domain-tag", type=str, default=None)
+    catalog_search_parser.add_argument("--limit", type=int, default=20)
+    catalog_search_parser.add_argument("--api-url", type=str, default=None)
+    catalog_install_parser = catalog_sub.add_parser(
+        "install", help="Install the provider for one selected atom"
+    )
+    catalog_install_parser.add_argument("fqdn", type=str)
+    catalog_install_parser.add_argument("--api-url", type=str, default=None)
+    catalog_publish_parser = catalog_sub.add_parser(
+        "publish-providers", help="Seed, enrich, and embed all provider catalogs"
+    )
+    catalog_publish_parser.add_argument("--workspace-root", type=str, default=None)
+    catalog_publish_parser.add_argument("--apply", action="store_true")
+    catalog_publish_parser.add_argument("--ensure-owner", action="store_true")
+    catalog_publish_parser.add_argument("--database-url", type=str, default=None)
+    catalog_publish_parser.add_argument("--allow-duplicate-fqdns", action="store_true")
+    catalog_publish_parser.add_argument("--skip-backfills", action="store_true")
+    catalog_publish_parser.add_argument("--skip-embeddings", action="store_true")
+    catalog_reconcile_parser = catalog_sub.add_parser(
+        "reconcile-providers",
+        help="Compare provider metadata identities with the seed inventory",
+    )
+    catalog_reconcile_parser.add_argument("--workspace-root", type=str, default=None)
+    catalog_reconcile_parser.add_argument("--strict", action="store_true")
+    catalog_reconcile_parser.add_argument("--apply", action="store_true")
+    catalog_reconcile_parser.add_argument(
+        "--retire-unresolved",
+        action="store_true",
+        help="Remove orphaned metadata and record catalog tombstones (implies --apply)",
+    )
+    catalog_provider_release_parser = catalog_sub.add_parser(
+        "validate-provider-release",
+        help="Build and validate one PEP 420 atom provider distribution",
+    )
+    catalog_provider_release_parser.add_argument("repo", nargs="?", default=".")
+    catalog_provider_release_parser.add_argument("--no-build", action="store_true")
+    catalog_audit_parser = catalog_sub.add_parser(
+        "audit-providers",
+        help="Report per-provider catalog completeness and trust readiness",
+    )
+    catalog_audit_parser.add_argument("--database-url", type=str, default=None)
+    catalog_audit_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit nonzero while any seeded atom is not audit-ready",
+    )
 
     # --- atom ---
     atom_parser = subparsers.add_parser(
@@ -1096,9 +1154,23 @@ def main() -> None:
         catalog_cmd = getattr(args, "catalog_command", None)
         if catalog_cmd == "sync":
             _run_async_command(_cmd_catalog_sync(args))
+        elif catalog_cmd == "search":
+            _run_async_command(_cmd_catalog_search(args))
+        elif catalog_cmd == "install":
+            _run_async_command(_cmd_catalog_install(args))
+        elif catalog_cmd == "publish-providers":
+            _cmd_catalog_publish_providers(args)
+        elif catalog_cmd == "reconcile-providers":
+            _cmd_catalog_reconcile_providers(args)
+        elif catalog_cmd == "validate-provider-release":
+            _cmd_catalog_validate_provider_release(args)
+        elif catalog_cmd == "audit-providers":
+            _cmd_catalog_audit_providers(args)
         else:
             print(
-                "Error: provide a catalog subcommand (sync)",
+                "Error: provide a catalog subcommand "
+                "(sync, search, install, publish-providers, reconcile-providers, "
+                "validate-provider-release, audit-providers)",
                 file=sys.stderr,
             )
             sys.exit(1)

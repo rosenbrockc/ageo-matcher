@@ -226,6 +226,8 @@ async def test_catalog_search_supabase_uses_phase6_rpc(monkeypatch) -> None:
 
     def rpc_handler(query: FakeRpcQuery) -> FakeResult:
         rpc_calls.append((query.name, query.params))
+        if query.name == "get_active_embedding_configuration":
+            return FakeResult(data=[])
         assert query.name == "search_atoms_hybrid"
         return FakeResult(
             data=[
@@ -254,6 +256,7 @@ async def test_catalog_search_supabase_uses_phase6_rpc(monkeypatch) -> None:
     assert result[0].risk_tier == "low"
     assert result[0].trust_readiness == "ready"
     assert rpc_calls == [
+        ("get_active_embedding_configuration", {}),
         (
             "search_atoms_hybrid",
             {
@@ -264,6 +267,88 @@ async def test_catalog_search_supabase_uses_phase6_rpc(monkeypatch) -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_catalog_search_uses_hybrid_postgres_and_returns_provider_metadata(
+    monkeypatch,
+) -> None:
+    async def embed(
+        _query: str, _config: catalog.CatalogEmbeddingConfig
+    ) -> list[float]:
+        return [0.25, 0.75]
+
+    monkeypatch.setattr(catalog, "_embed_catalog_query", embed)
+    rpc_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def table_handler(query: FakeQuery) -> FakeResult:
+        assert query.name == "catalog_atom_installations"
+        assert ("in", "fqdn", ["sciona.atoms.signal.filter.apply_filter"]) in query.filters
+        return FakeResult(
+            data=[
+                {
+                    "fqdn": "sciona.atoms.signal.filter.apply_filter",
+                    "provider_id": "sciona-atoms-signal",
+                    "distribution_name": "sciona-atoms-signal",
+                    "distribution_version": "1.2.0",
+                    "install_requirement": "sciona-atoms-signal==1.2.0",
+                    "import_module": "sciona.atoms.signal.filter",
+                    "import_symbol": "apply_filter",
+                    "wheel_url": "",
+                    "wheel_sha256": "",
+                }
+            ]
+        )
+
+    def rpc_handler(query: FakeRpcQuery) -> FakeResult:
+        rpc_calls.append((query.name, query.params))
+        if query.name == "get_active_embedding_configuration":
+            return FakeResult(
+                data=[
+                    {
+                        "provider": "openai",
+                        "model": "text-embedding-3-small",
+                        "model_revision": "text-embedding-3-small",
+                        "dimensions": 1536,
+                        "input_schema_version": "atom-search-v1",
+                        "embedding_space_id": (
+                            "openai:text-embedding-3-small:"
+                            "text-embedding-3-small:1536:atom-search-v1"
+                        ),
+                    }
+                ]
+            )
+        return FakeResult(
+            data=[
+                {
+                    "fqdn": "sciona.atoms.signal.filter.apply_filter",
+                    "technical_description": "Apply a general signal filter",
+                    "domain_tags": ["signal"],
+                }
+            ]
+        )
+
+    result = await catalog.catalog_search(
+        q="remove noise from observations",
+        limit=5,
+        supabase=FakeSupabaseClient(table_handler, rpc_handler),
+    )
+
+    assert rpc_calls == [
+        ("get_active_embedding_configuration", {}),
+        (
+            "search_atoms_hybrid",
+            {
+                "query_text": "remove noise from observations",
+                "query_embedding": [0.25, 0.75],
+                "mode": "hybrid",
+                "result_limit": 5,
+                "result_offset": 0,
+            },
+        )
+    ]
+    assert result[0].provider is not None
+    assert result[0].provider.install_requirement == "sciona-atoms-signal==1.2.0"
 
 
 @pytest.mark.asyncio
@@ -300,6 +385,7 @@ async def test_catalog_search_supabase_falls_back_to_served_view() -> None:
 
     assert [entry.fqdn for entry in result] == ["pkg.filter"]
     assert rpc_calls == [
+        ("get_active_embedding_configuration", {}),
         (
             "search_atoms_hybrid",
             {
@@ -310,6 +396,36 @@ async def test_catalog_search_supabase_falls_back_to_served_view() -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_catalog_search_falls_back_when_rpc_has_no_exact_fqdn_match() -> None:
+    def table_handler(query: FakeQuery) -> FakeResult:
+        assert query.name == "catalog_atoms_served"
+        assert query.action == "select"
+        return FakeResult(
+            data=[
+                {
+                    "fqdn": "sciona.atoms.ml.diagnostics.score",
+                    "technical_description": "Score a model diagnostic",
+                    "domain_tags": ["ml"],
+                }
+            ]
+        )
+
+    def rpc_handler(query: FakeRpcQuery) -> FakeResult:
+        if query.name == "get_active_embedding_configuration":
+            return FakeResult(data=[])
+        assert query.name == "search_atoms_hybrid"
+        return FakeResult(data=[])
+
+    result = await catalog.catalog_search(
+        q="sciona.atoms.ml.diagnostics.score",
+        limit=5,
+        supabase=FakeSupabaseClient(table_handler, rpc_handler),
+    )
+
+    assert [entry.fqdn for entry in result] == ["sciona.atoms.ml.diagnostics.score"]
 
 
 @pytest.mark.asyncio

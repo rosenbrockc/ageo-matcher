@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
 import pytest
 
@@ -126,3 +127,42 @@ class TestVerificationOracleImpl:
         oracle = VerificationOracleImpl()
         with pytest.raises(RuntimeError, match="LeanEnvironment not configured"):
             await oracle.verify_candidate(pdg_node, candidate)
+
+    @pytest.mark.asyncio
+    async def test_python_candidate_installs_provider_before_verification(
+        self, monkeypatch
+    ):
+        from sciona.judge.checker import VerificationOracleImpl
+
+        installed: list[str] = []
+        monkeypatch.setattr(
+            "sciona.provider_runtime.ProviderInstaller.ensure_installed",
+            lambda _self, provider: installed.append(provider.install_requirement),
+        )
+        python_env = SimpleNamespace(
+            python_path="/tmp/provider-python",
+            check_term=AsyncMock(return_value=(True, "OK")),
+        )
+        declaration = Declaration(
+            name="sciona.atoms.physics.ops.kinetic_energy",
+            type_signature="",
+            prover=Prover.PYTHON,
+            provider_id="sciona-atoms-physics",
+            distribution_name="sciona-atoms-physics",
+            distribution_version="1.0.0",
+            install_requirement="sciona-atoms-physics==1.0.0",
+            import_module="sciona.atoms.physics.ops",
+            import_symbol="kinetic_energy",
+        )
+        candidate = CandidateMatch(declaration, 0.9, "postgres")
+        pdg = PDGNode("p1", "(mass: float, velocity: float) -> float", prover=Prover.PYTHON)
+
+        result = await VerificationOracleImpl(python_env=python_env).verify_candidate(
+            pdg, candidate
+        )
+
+        assert result.verified is True
+        assert installed == ["sciona-atoms-physics==1.0.0"]
+        python_env.check_term.assert_awaited_once_with(
+            declaration.name, pdg.statement
+        )

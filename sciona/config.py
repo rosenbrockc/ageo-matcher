@@ -47,7 +47,7 @@ class AgeomConfig(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 768
     embedding_batch_size: int = 32
-    semantic_index_backend: str = "auto"  # "auto" | "faiss" | "lexical"
+    semantic_index_backend: str = "postgres"  # "postgres" | "auto" | "faiss" | "lexical"
 
     # FAISS index
     index_dir: Path = Field(default=Path("data/index"))

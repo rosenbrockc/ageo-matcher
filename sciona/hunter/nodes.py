@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sciona.atom_identity import logical_atom_id_from_fqdn, known_atom_package_prefixes
@@ -452,15 +452,28 @@ def _canonicalize_candidate_match(
     declaration = candidate.declaration
     primitive = _resolve_live_primitive(deps, declaration)
     if primitive is not None:
+        canonical_declaration = _declaration_from_primitive(
+            primitive,
+            name=declaration.name,
+            source_lib=declaration.source_lib or primitive.source,
+            prover=declaration.prover,
+            raw_code=declaration.raw_code,
+            conceptual_summary=declaration.conceptual_summary,
+        )
+        if declaration.install_requirement:
+            canonical_declaration = replace(
+                canonical_declaration,
+                provider_id=declaration.provider_id,
+                distribution_name=declaration.distribution_name,
+                distribution_version=declaration.distribution_version,
+                install_requirement=declaration.install_requirement,
+                import_module=declaration.import_module,
+                import_symbol=declaration.import_symbol,
+                wheel_url=declaration.wheel_url,
+                wheel_sha256=declaration.wheel_sha256,
+            )
         return CandidateMatch(
-            declaration=_declaration_from_primitive(
-                primitive,
-                name=declaration.name,
-                source_lib=declaration.source_lib or primitive.source,
-                prover=declaration.prover,
-                raw_code=declaration.raw_code,
-                conceptual_summary=declaration.conceptual_summary,
-            ),
+            declaration=canonical_declaration,
             score=candidate.score,
             retrieval_method=candidate.retrieval_method,
         )
@@ -468,6 +481,8 @@ def _canonicalize_candidate_match(
     if _is_atom_package_label(declaration.name) or _is_atom_package_label(
         declaration.source_lib
     ):
+        if declaration.install_requirement and declaration.import_module:
+            return candidate
         return None
     return candidate
 

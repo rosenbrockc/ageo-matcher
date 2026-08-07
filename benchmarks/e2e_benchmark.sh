@@ -37,7 +37,7 @@ fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# Optional: pass a YAML goal config as $1 (e.g. e2e_goals/ecg_heart_rate.yml)
+# A goal config is required so no discipline is a hidden benchmark default.
 if [ -n "$GOAL_CONFIG" ] && [ -f "$GOAL_CONFIG" ]; then
     _goal_config="$GOAL_CONFIG"
     GOAL=$("$BENCHMARK_PYTHON" -c "import yaml, sys; print(yaml.safe_load(open('$_goal_config'))['goal'])")
@@ -47,11 +47,8 @@ if [ -n "$GOAL_CONFIG" ] && [ -f "$GOAL_CONFIG" ]; then
     PROFILE_METRIC=${E2E_PROFILE_METRIC:-$("$BENCHMARK_PYTHON" -c "import yaml; data=yaml.safe_load(open('$_goal_config')) or {}; print(data.get('optimization_metric') or 'precision')")}
     info "Loaded goal config from $_goal_config"
 else
-    GOAL="Detect heart rate from raw ECG signal"
-    PROVER="python"
-    _gt_json=""
-    EVAL_SPEC_PATH=""
-    PROFILE_METRIC="${E2E_PROFILE_METRIC:-precision}"
+    fail "A YAML goal config is required (for example e2e_goals/shortest_path.yml)"
+    exit 2
 fi
 export LLM_PROVIDER="${E2E_LLM_PROVIDER:-codex_shim}"
 export LLM_MODEL="${E2E_LLM_MODEL:-gpt-5.3-codex}"
@@ -100,13 +97,12 @@ if [[ "$(printf '%s' "${E2E_GENERIC_ONLY:-}" | tr '[:upper:]' '[:lower:]')" == "
     info "Generic-only mode: SCIONA_DISABLE_PHRASE_RULES=1"
 fi
 
-# Force FAISS semantic index — the default retrieval policy degrades to
-# lexical when catalog confidence is < 0.70 (medium band), which prevents
-# the benchmark from exercising the full semantic search pipeline.
-export SCIONA_SEMANTIC_INDEX_BACKEND=faiss
+# Exercise the deployed Postgres/pgvector retrieval path. Offline FAISS runs
+# are separate diagnostics and must opt in explicitly.
+export SCIONA_SEMANTIC_INDEX_BACKEND="${E2E_SEMANTIC_INDEX_BACKEND:-postgres}"
 MODE_TIMEOUT_S="${E2E_MODE_TIMEOUT_S:-240}"
 RAW_TIMEOUT_S="${E2E_RAW_TIMEOUT_S:-120}"
-INCLUDE_SYNTHESIS="${E2E_INCLUDE_SYNTHESIS:-false}"
+INCLUDE_SYNTHESIS="${E2E_INCLUDE_SYNTHESIS:-true}"
 SYNTH_TIMEOUT_S="${E2E_SYNTH_TIMEOUT_S:-240}"
 EXPORT_TIMEOUT_S="${E2E_EXPORT_TIMEOUT_S:-120}"
 PROFILE_TIMEOUT_S="${E2E_PROFILE_TIMEOUT_S:-180}"
@@ -163,12 +159,8 @@ if [ -n "$_gt_json" ]; then
         GROUND_TRUTH_PATTERNS+=("$("$BENCHMARK_PYTHON" -c "import json; print(json.loads('$_gt_json')[$_i])")")
     done
 else
-    # Fallback: hardcoded ECG values for backwards compatibility
-    GROUND_TRUTH_PATTERNS=(
-        "filter_signal_for_detection|bandpass_filter"
-        "detect_peaks_in_signal|r_peak_detection|hamilton_segment"
-        "compute_event_rate|heart_rate_computation"
-    )
+    fail "Goal config must declare ground_truth_patterns"
+    exit 2
 fi
 
 # ---------------------------------------------------------------------------
@@ -240,8 +232,9 @@ for m in matches:
     if vm and vm.get('verified'):
         decl = vm.get('candidate', {}).get('declaration', {})
         names.append(decl.get('name', ''))
-    for c in m.get('all_candidates', []):
-        names.append(c.get('declaration', {}).get('name', ''))
+    if '$label' == 'raw_llm':
+        for c in m.get('all_candidates', []):
+            names.append(c.get('declaration', {}).get('name', ''))
 pattern = r'$pattern'
 found = any(re.search(pattern, n, re.IGNORECASE) for n in names)
 sys.exit(0 if found else 1)
@@ -628,11 +621,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Optional synthesis/export/profile for pipeline modes
+# 5. Synthesis/export/profile for pipeline modes
 # ---------------------------------------------------------------------------
 if [[ "$(printf '%s' "$INCLUDE_SYNTHESIS" | tr '[:upper:]' '[:lower:]')" == "true" ]]; then
     echo ""
-    info "Running optional synthesize/export/profile phases..."
+    info "Running synthesize/export/profile phases..."
     run_pipeline_postprocess rapid "$RAPID_DIR"
     run_pipeline_postprocess structured "$STRUCTURED_DIR"
     run_pipeline_postprocess verified "$VERIFIED_DIR"
@@ -710,6 +703,22 @@ def read_postprocess(label_dir):
         return None
     return json.load(open(p))
 
+def is_executable(postprocess):
+    if not isinstance(postprocess, dict) or not postprocess.get('attempted'):
+        return False
+    synth = postprocess.get('synthesize') or {}
+    export = postprocess.get('export') or {}
+    profile = postprocess.get('profile') or {}
+    return bool(
+        synth.get('exit_code') == 0
+        and synth.get('compiled_ok') is True
+        and synth.get('output_exists') is True
+        and export.get('exit_code') == 0
+        and export.get('output_exists') is True
+        and profile.get('attempted') is True
+        and profile.get('exit_code') == 0
+    )
+
 rapid_total, rapid_verified = read_matches(os.environ['RAPID_DIR_FOR_SUMMARY'])
 structured_total, structured_verified = read_matches(os.environ['STRUCTURED_DIR_FOR_SUMMARY'])
 verified_total, verified_verified = read_matches(os.environ['VERIFIED_DIR_FOR_SUMMARY'])
@@ -733,7 +742,7 @@ shortcut_flags = {
     'generic_only_keyword_path': (
         str(os.environ.get('E2E_GENERIC_ONLY', '')).strip().lower() in {'1', 'true', 'yes'}
     ),
-    'forced_semantic_backend_faiss': True,
+    'forced_semantic_backend_faiss': False,
 }
 
 variants = {
@@ -743,7 +752,7 @@ variants = {
         'matches_total': rapid_total,
         'matches_verified': rapid_verified,
         'ground_truth_hits': read_hits('rapid'),
-        'executable': bool((rapid_post or {}).get('synthesize', {}).get('compiled_ok', True)),
+        'executable': is_executable(rapid_post),
     },
     'structured': {
         'mode_dir': os.environ['STRUCTURED_DIR_FOR_SUMMARY'],
@@ -751,7 +760,7 @@ variants = {
         'matches_total': structured_total,
         'matches_verified': structured_verified,
         'ground_truth_hits': read_hits('structured'),
-        'executable': bool((structured_post or {}).get('synthesize', {}).get('compiled_ok', True)),
+        'executable': is_executable(structured_post),
     },
     'verified': {
         'mode_dir': os.environ['VERIFIED_DIR_FOR_SUMMARY'],
@@ -759,7 +768,7 @@ variants = {
         'matches_total': verified_total,
         'matches_verified': verified_verified,
         'ground_truth_hits': read_hits('verified'),
-        'executable': bool((verified_post or {}).get('synthesize', {}).get('compiled_ok', True)),
+        'executable': is_executable(verified_post),
     },
     'raw_llm': {
         'mode_dir': os.environ['RAW_DIR_FOR_SUMMARY'],
@@ -784,6 +793,9 @@ report = evaluate_e2e_benchmark_report(
 
 with open(output_dir / 'summary.json', 'w') as f:
     json.dump(report, f, indent=2)
+(output_dir / 'benchmark_passed.txt').write_text(
+    'true\n' if report['benchmark_policy']['passed'] else 'false\n'
+)
 
 # Print table
 print()
@@ -846,4 +858,8 @@ elif [ "$VERIFIED_HITS" -lt "$RAW_HITS" ]; then
 fi
 
 echo ""
+if [ "$(cat "$OUTPUT_DIR/benchmark_passed.txt" 2>/dev/null || echo false)" != "true" ]; then
+    fail "E2E benchmark policy failed"
+    exit 1
+fi
 ok "E2E benchmark complete"

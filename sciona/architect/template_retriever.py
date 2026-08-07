@@ -7,6 +7,7 @@ for finding reusable decomposition templates.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -154,7 +155,7 @@ class TemplateRetriever:
         try:
             concept_type = failed_node.concept_type.value
             query_templates = getattr(self._store, "query_verified_exemplar_templates", None)
-            if callable(query_templates):
+            if inspect.iscoroutinefunction(query_templates):
                 same_family_records = await query_templates(
                     concept_type=concept_type,
                     n_inputs=len(failed_node.inputs),
