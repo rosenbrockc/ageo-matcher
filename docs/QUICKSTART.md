@@ -58,13 +58,13 @@ The runnable artifact is:
 
 ## 4. Profile It
 
-Example against the NIGHTCAP adapter dataset:
+Provide a private evaluation adapter through local configuration:
 
 ```bash
 sciona profile \
   --cdg output/my_algorithm/cdg.json \
   --artifact output/my_algorithm/verified.py \
-  --dataset "$HOME/.happy/resources/synced/hpy-templated-datasets/NIGHTCAP/sciona.yml" \
+  --dataset "$E2E_PROFILE_DATASET" \
   --dataset-var tracker=single \
   --metric precision
 ```

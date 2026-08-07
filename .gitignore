@@ -7,6 +7,7 @@ build/
 .mypy_cache/
 .ruff_cache/
 .sciona_datasets_cache/
+.sciona_generated_adapters/
 .DS_Store
 data/
 !ageom/data/

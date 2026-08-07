@@ -53,7 +53,7 @@ def test_build_runtime_artifacts_persists_canonical_runtime_evidence(
         },
         invocation_summary={
             "mode": "adapter_runner",
-            "dataset_root": "/tmp/nightcap",
+            "dataset_root": "/tmp/synthetic_evaluation",
             "dataset_vars": {"tracker": "single"},
             "slice_start_s": 5.0,
             "slice_stop_s": 305.0,

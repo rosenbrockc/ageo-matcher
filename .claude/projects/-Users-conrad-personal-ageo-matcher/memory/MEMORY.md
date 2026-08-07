@@ -46,7 +46,7 @@
   - external atom heuristic metadata supports multi-record files
 
 ## ECG HR Status
-- Focused ECG HR optimize on the 5-minute NIGHTCAP slice now completes cleanly
+- Focused ECG HR optimization on a private five-minute holdout now completes cleanly
 - Baseline biosppy chain:
   - `bandpass_filter -> r_peak_detection -> heart_rate_computation`
   - loss around `8.862357815188158`

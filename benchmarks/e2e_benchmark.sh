@@ -107,19 +107,7 @@ SYNTH_TIMEOUT_S="${E2E_SYNTH_TIMEOUT_S:-240}"
 EXPORT_TIMEOUT_S="${E2E_EXPORT_TIMEOUT_S:-120}"
 PROFILE_TIMEOUT_S="${E2E_PROFILE_TIMEOUT_S:-180}"
 export SCIONA_EVALUATOR_TIMEOUT_S="${E2E_EVALUATOR_TIMEOUT_S:-$PROFILE_TIMEOUT_S}"
-DEFAULT_PROFILE_DATASET="$HOME/.happy/resources/synced/hpy-templated-datasets/NIGHTCAP/sciona.yml"
-if [ ! -f "$DEFAULT_PROFILE_DATASET" ]; then
-    for candidate in \
-        "$HOME/.happy/resources/synced/hpy-templated-datasets/NIGHTCAP/ageom.yml" \
-        "$HOME/.happy/resources/synced/hpy-templated-datasets/NIGHTCAP/adapter.yml"
-    do
-        if [ -f "$candidate" ]; then
-            DEFAULT_PROFILE_DATASET="$candidate"
-            break
-        fi
-    done
-fi
-PROFILE_DATASET="${E2E_PROFILE_DATASET:-$DEFAULT_PROFILE_DATASET}"
+PROFILE_DATASET="${E2E_PROFILE_DATASET:-}"
 PROFILE_DATASET_VARS="${E2E_PROFILE_DATASET_VARS:-}"
 if [ -z "$PROFILE_DATASET_VARS" ] && [ -f "$PROFILE_DATASET" ] && rg -Fq '$(tracker)' "$PROFILE_DATASET"; then
     PROFILE_DATASET_VARS="tracker=single"

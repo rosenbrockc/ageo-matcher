@@ -1093,7 +1093,7 @@ class TestPrincipalState:
 
         state = PrincipalState(
             metric=OptimizationMetric.PRECISION,
-            dataset_path="/tmp/nightcap.yml",
+            dataset_path="/tmp/synthetic_signal.yml",
             current_trial=1,
             cdg=_make_cdg(("n1", "Detect Peaks")),
             export_bundle=SimpleNamespace(),

@@ -45,7 +45,7 @@ def _reason(
 
 def test_usability_assessment_supports_three_scopes_and_round_trips() -> None:
     assessment = UsabilityAssessment(
-        assessment_id="nightcap_member_001",
+        assessment_id="synthetic_member_001",
         family="signal_detect_measure",
         task_intent="detect_rate_from_waveform",
         heuristic_signature=["interval_instability", "quality_instability"],

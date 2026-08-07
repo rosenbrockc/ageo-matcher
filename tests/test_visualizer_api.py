@@ -830,7 +830,7 @@ class TestDashboardAPI:
                 "optimize": {
                     "objective": "rmse",
                     "execution_metric": "precision",
-                    "benchmark_path": "datasets/nightcap/sciona.yml",
+                    "benchmark_path": "datasets/private-evaluation-v1/adapter.yml",
                     "max_trials": 6,
                     "trials_run": 4,
                     "best_loss": 8.55304557280547,

@@ -1,6 +1,6 @@
 #!/bin/bash
 # example.sh: End-to-end algorithm generation for ECG Heart Rate Detection
-# using the NIGHTCAP templated adapter dataset.
+# using a private templated adapter dataset configured outside Git.
 set -euo pipefail
 
 # Preflight checks
@@ -11,9 +11,9 @@ fi
 
 # 1. Setup paths
 GOAL="Detect heart rate from raw ECG signal"
-ADAPTER_PATH="$HOME/.happy/resources/synced/hpy-templated-datasets/NIGHTCAP/adapter.yml"
-BUILD_DIR="./build/nightcap_hr_detection"
-DIST_DIR="./dist/nightcap_hr_detection"
+ADAPTER_PATH="${E2E_PROFILE_DATASET:?Set E2E_PROFILE_DATASET to a local adapter path}"
+BUILD_DIR="./build/ecg_hr_detection"
+DIST_DIR="./dist/ecg_hr_detection"
 RUN_METRICS="$BUILD_DIR/run_shared_context_metrics.json"
 SYNTH_METRICS="$BUILD_DIR/synthesize_shared_context_metrics.json"
 
@@ -67,7 +67,7 @@ sciona export "$BUILD_DIR/verified.py" \
   --output-dir "$DIST_DIR"
 
 echo -e "\n=== Step 4: Profile Against Benchmark ==="
-# Evaluate the final artifact's performance on the NIGHTCAP dataset.
+# Evaluate the final artifact's performance on the configured private dataset.
 # Produces per-node gradient scores ranking error contributors.
 sciona profile \
   --cdg "$BUILD_DIR/cdg.json" \
