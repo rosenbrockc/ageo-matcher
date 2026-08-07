@@ -485,10 +485,17 @@ def _create_cold_matcher_environment(
 
 
 def _exercise_cold_runtime(
-    *, python: Path, api_url: str, cert_path: Path, work_dir: Path
+    *,
+    python: Path,
+    api_url: str,
+    cert_path: Path,
+    work_dir: Path,
+    matcher_root: Path,
+    ecg_edf: Path | None = None,
 ) -> dict[str, object]:
     fqdn_rows = json.dumps([fqdn for _provider, fqdn in PROVIDERS])
     provider_rows = json.dumps([provider for provider, _fqdn in PROVIDERS])
+    signal_preinstalled = ecg_edf is not None
     script = f"""
 import asyncio
 import importlib.metadata
@@ -498,6 +505,7 @@ from sciona.provider_runtime import ProviderInstaller, RemoteCatalogClient
 
 fqdns = {fqdn_rows}
 providers = {provider_rows}
+signal_preinstalled = {signal_preinstalled!r}
 
 def installed(name):
     try:
@@ -509,12 +517,14 @@ def installed(name):
 async def main():
     client = RemoteCatalogClient({api_url!r})
     candidates = [await client.find(fqdn) for fqdn in fqdns]
-    assert not any(installed(name) for name in providers)
+    assert [installed(name) for name in providers] == [signal_preinstalled] + [False] * (len(providers) - 1)
     results = {{}}
     for index, candidate in enumerate(candidates):
-        assert [installed(name) for name in providers] == [i < index for i in range(len(providers))]
+        expected_before = [i < index or (signal_preinstalled and i == 0) for i in range(len(providers))]
+        assert [installed(name) for name in providers] == expected_before
         function = ProviderInstaller().materialize(candidate)
-        assert [installed(name) for name in providers] == [i <= index for i in range(len(providers))]
+        expected_after = [i <= index or (signal_preinstalled and i == 0) for i in range(len(providers))]
+        assert [installed(name) for name in providers] == expected_after
         if index == 0:
             values = np.array([1.0, 2.0, 3.0, 4.0])
             result = function(values, np.fft.fft(values))
@@ -563,6 +573,25 @@ asyncio.run(main())
 """
     env = os.environ.copy()
     env["SSL_CERT_FILE"] = str(cert_path)
+    ecg_result: dict[str, object] | None = None
+    if ecg_edf is not None:
+        ecg_run = _run(
+            [
+                str(python),
+                str(matcher_root / "scripts" / "ecg_data_e2e_runtime.py"),
+                "--api-url",
+                api_url,
+                "--edf",
+                str(ecg_edf),
+            ],
+            cwd=work_dir,
+            env=env,
+            capture=True,
+        )
+        ecg_output = ecg_run.stdout.strip().splitlines()
+        if not ecg_output:
+            raise RuntimeError("ECG runtime produced no result")
+        ecg_result = json.loads(ecg_output[-1])
     result = _run(
         [str(python), "-c", script],
         cwd=work_dir,
@@ -572,7 +601,10 @@ asyncio.run(main())
     output = result.stdout.strip().splitlines()
     if not output:
         raise RuntimeError("Cold runtime produced no result")
-    return json.loads(output[-1])
+    runtime_result = json.loads(output[-1])
+    if ecg_result is not None:
+        runtime_result["ecg"] = ecg_result
+    return runtime_result
 
 
 def main() -> int:
@@ -594,9 +626,18 @@ def main() -> int:
         default=None,
         help="Write the catalog audit JSON to this path",
     )
+    parser.add_argument(
+        "--ecg-edf",
+        type=Path,
+        default=None,
+        help="Run an intent-discovered ECG pipeline against this real EDF recording",
+    )
     args = parser.parse_args()
 
     workspace_root = args.workspace_root.resolve()
+    ecg_edf = args.ecg_edf.expanduser().resolve() if args.ecg_edf else None
+    if ecg_edf is not None and not ecg_edf.is_file():
+        parser.error(f"ECG EDF does not exist: {ecg_edf}")
     matcher_root = Path(__file__).resolve().parents[1]
     temp_context = None
     if args.keep_workdir:
@@ -682,6 +723,8 @@ def main() -> int:
             api_url=api_url,
             cert_path=cert_path,
             work_dir=work_dir,
+            matcher_root=matcher_root,
+            ecg_edf=ecg_edf,
         )
         print(
             json.dumps(
