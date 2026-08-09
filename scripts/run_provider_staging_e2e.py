@@ -775,6 +775,32 @@ def main() -> int:
         action="store_true",
         help="Compare small Sciona-assisted and scratch agents on --ecg-edf",
     )
+    parser.add_argument(
+        "--blind-evaluation",
+        action="store_true",
+        help="Run the cross-disciplinary blind retrieval, build, and scale suite",
+    )
+    parser.add_argument(
+        "--blind-agent-comparison",
+        action="store_true",
+        help="Also run small-assisted, small-scratch, and large-scratch blind arms",
+    )
+    parser.add_argument(
+        "--open-data-evaluation",
+        action="store_true",
+        help="Run the pinned public-data retrieval, build, and correctness suite",
+    )
+    parser.add_argument(
+        "--open-data-agent-comparison",
+        action="store_true",
+        help="Also run repeated agent arms against the public-data suite",
+    )
+    parser.add_argument(
+        "--open-data-cache-dir",
+        type=Path,
+        help="Verified public dataset cache (defaults under the staging workdir)",
+    )
+    parser.add_argument("--agent-repetitions", type=int, default=1)
     args = parser.parse_args()
 
     workspace_root = args.workspace_root.resolve()
@@ -783,6 +809,14 @@ def main() -> int:
         parser.error(f"ECG EDF does not exist: {ecg_edf}")
     if args.agent_benchmark and ecg_edf is None:
         parser.error("--agent-benchmark requires --ecg-edf")
+    if args.blind_evaluation and ecg_edf is None:
+        parser.error("--blind-evaluation requires --ecg-edf")
+    if args.blind_agent_comparison and not args.blind_evaluation:
+        parser.error("--blind-agent-comparison requires --blind-evaluation")
+    if args.open_data_agent_comparison and not args.open_data_evaluation:
+        parser.error("--open-data-agent-comparison requires --open-data-evaluation")
+    if args.agent_repetitions < 1:
+        parser.error("--agent-repetitions must be positive")
     matcher_root = Path(__file__).resolve().parents[1]
     temp_context = None
     if args.keep_workdir:
@@ -863,6 +897,123 @@ def main() -> int:
             wheel_dir=wheel_dir,
             cold_venv=work_dir / "cold-venv",
         )
+        blind_evaluation: dict[str, object] | None = None
+        if args.blind_evaluation:
+            blind_python = _create_cold_matcher_environment(
+                matcher_root=matcher_root,
+                wheel_dir=wheel_dir,
+                cold_venv=work_dir / "blind-cold-venv",
+            )
+            blind_output = matcher_root / "output" / time.strftime(
+                "cross_disciplinary_blind_%Y%m%d_%H%M%S"
+            )
+            blind_command = [
+                str(blind_python),
+                str(matcher_root / "scripts" / "run_cross_disciplinary_blind.py"),
+                "--api-url",
+                api_url,
+                "--output",
+                str(blind_output),
+                "--ecg-edf",
+                str(ecg_edf),
+            ]
+            if args.blind_agent_comparison:
+                agent_python = _create_cold_matcher_environment(
+                    matcher_root=matcher_root,
+                    wheel_dir=wheel_dir,
+                    cold_venv=work_dir / "blind-agent-cold-venv",
+                )
+                blind_command.extend(
+                    ["--with-agents", "--tool-python", str(agent_python)]
+                )
+            _run(
+                blind_command,
+                cwd=matcher_root,
+                env={**os.environ, "SSL_CERT_FILE": str(cert_path)},
+                capture=True,
+            )
+            blind_evaluation = json.loads(
+                (blind_output / "report.json").read_text()
+            )
+            from sciona.blind_evaluation import (
+                evaluate_postgres_scale,
+                load_blind_suite,
+            )
+
+            blind_suite = load_blind_suite(
+                matcher_root / "evaluations" / "cross_disciplinary_blind.json"
+            )
+            blind_evaluation["postgres_scale"] = evaluate_postgres_scale(
+                supabase_env["DB_URL"], blind_suite
+            )
+            if blind_evaluation["postgres_scale"]["top_k_recall"] != 1.0:
+                raise RuntimeError(
+                    "Cross-disciplinary PostgreSQL scale retrieval missed a target"
+                )
+            (blind_output / "report.json").write_text(
+                json.dumps(blind_evaluation, indent=2, sort_keys=True) + "\n"
+            )
+        open_data_evaluation: dict[str, object] | None = None
+        if args.open_data_evaluation:
+            open_data_python = _create_cold_matcher_environment(
+                matcher_root=matcher_root,
+                wheel_dir=wheel_dir,
+                cold_venv=work_dir / "open-data-cold-venv",
+            )
+            open_data_output = matcher_root / "output" / time.strftime(
+                "open_data_blind_%Y%m%d_%H%M%S"
+            )
+            cache_dir = (
+                args.open_data_cache_dir.resolve()
+                if args.open_data_cache_dir
+                else work_dir / "open-data-cache"
+            )
+            open_data_command = [
+                str(open_data_python),
+                str(matcher_root / "scripts" / "run_open_data_blind.py"),
+                "--api-url",
+                api_url,
+                "--output",
+                str(open_data_output),
+                "--cache-dir",
+                str(cache_dir),
+                "--agent-repetitions",
+                str(args.agent_repetitions),
+            ]
+            if args.open_data_agent_comparison:
+                agent_python = _create_cold_matcher_environment(
+                    matcher_root=matcher_root,
+                    wheel_dir=wheel_dir,
+                    cold_venv=work_dir / "open-data-agent-cold-venv",
+                )
+                open_data_command.extend(
+                    ["--with-agents", "--tool-python", str(agent_python)]
+                )
+            _run(
+                open_data_command,
+                cwd=matcher_root,
+                env={**os.environ, "SSL_CERT_FILE": str(cert_path)},
+                capture=True,
+            )
+            open_data_evaluation = json.loads(
+                (open_data_output / "report.json").read_text()
+            )
+            from sciona.blind_evaluation import (
+                evaluate_postgres_scale,
+                load_blind_suite,
+            )
+
+            open_data_suite = load_blind_suite(
+                matcher_root / "evaluations" / "open_data_blind.json"
+            )
+            open_data_evaluation["postgres_scale"] = evaluate_postgres_scale(
+                supabase_env["DB_URL"], open_data_suite
+            )
+            if open_data_evaluation["postgres_scale"]["top_k_recall"] != 1.0:
+                raise RuntimeError("Public-data PostgreSQL scale retrieval missed a target")
+            (open_data_output / "report.json").write_text(
+                json.dumps(open_data_evaluation, indent=2, sort_keys=True) + "\n"
+            )
         artifact_builder: dict[str, object] | None = None
         if ecg_edf is not None:
             artifact_builder = _exercise_artifact_builder(
@@ -920,6 +1071,8 @@ def main() -> int:
                     "retrieval": retrieval_results,
                     "artifact_builder": artifact_builder,
                     "agent_benchmark": agent_benchmark,
+                    "blind_evaluation": blind_evaluation,
+                    "open_data_evaluation": open_data_evaluation,
                 },
                 indent=2,
             )

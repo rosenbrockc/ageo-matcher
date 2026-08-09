@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "cross-disciplinary-open-data-v1",
+  "tasks": [
+    {
+      "task_id": "physionet-ambulatory-beat-rate",
+      "discipline": "signal_processing",
+      "evaluator": "mit_bih_ecg_rate",
+      "dataset_id": "physionet-mitdb-100",
+      "function_name": "solve",
+      "contract": "Return aligned sample indices and beat rates from a sampled one-dimensional waveform.",
+      "variants": [
+        {"variant": "explicit", "query": "Estimate beat rate from an ambulatory ECG recording", "acceptable_artifacts": ["cdg.sciona_atoms_signal.ecg_heart_rate_biosppy"], "accuracy_required": true},
+        {"variant": "masked", "query": "Infer recurring event cadence from a long unlabeled sensor trace", "acceptable_artifacts": ["cdg.skeleton.signal_detect_measure"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Monitor cardiac pulse timing from a noisy wearable voltage channel", "acceptable_artifacts": ["cdg.sciona_atoms_signal.ecg_heart_rate_biosppy"], "accuracy_required": true}
+      ]
+    },
+    {
+      "task_id": "dimacs-rome-route-costs",
+      "discipline": "computer_science",
+      "evaluator": "dimacs_dijkstra",
+      "dataset_id": "dimacs-rome99",
+      "function_name": "solve",
+      "contract": "Return single-source distances for a nonnegative weighted sparse directed graph after validating edge compatibility.",
+      "variants": [
+        {"variant": "explicit", "query": "Compute Dijkstra distances through a directed city road graph", "acceptable_artifacts": ["cdg.sciona_atoms_cs.dijkstra_shortest_path"], "accuracy_required": true},
+        {"variant": "masked", "query": "Accumulate the cheapest reachable cost from one origin across linked locations", "acceptable_artifacts": ["cdg.sciona_atoms_cs.dijkstra_shortest_path"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Find minimum cable delay from one router through a nonnegative network", "acceptable_artifacts": ["cdg.sciona_atoms_cs.dijkstra_shortest_path"], "accuracy_required": true}
+      ]
+    },
+    {
+      "task_id": "uci-gps-geodetic-to-ecef",
+      "discipline": "geospatial",
+      "evaluator": "uci_wgs84_ecef",
+      "dataset_id": "uci-gps-trajectories",
+      "function_name": "solve",
+      "contract": "Convert observed WGS84 geodetic latitude, longitude, and altitude arrays to Earth-centered Earth-fixed x, y, and z arrays in meters.",
+      "variants": [
+        {"variant": "explicit", "query": "Convert recorded WGS84 GPS latitude longitude and altitude to ECEF", "acceptable_artifacts": ["sciona.atoms.geo.geospatial_sensors.lla_to_ecef"], "accuracy_required": true},
+        {"variant": "masked", "query": "Map angular world positions into an Earth-centered Cartesian frame", "acceptable_artifacts": ["sciona.atoms.geo.geospatial_sensors.lla_to_ecef"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Convert fleet tracker fixes into Earth-fixed x y z coordinates", "acceptable_artifacts": ["sciona.atoms.geo.geospatial_sensors.lla_to_ecef"], "accuracy_required": true}
+      ]
+    },
+    {
+      "task_id": "uci-gps-linear-motion",
+      "discipline": "robotics",
+      "evaluator": "uci_linear_motion",
+      "dataset_id": "uci-gps-trajectories",
+      "function_name": "solve",
+      "contract": "Initialize a linear position state from observed motion, predict one step, and return the primary predicted component.",
+      "variants": [
+        {"variant": "explicit", "query": "Predict a robot position one step from a linear Kalman motion state", "acceptable_artifacts": ["cdg.sciona_atoms_robotics.linear_state_prediction"], "accuracy_required": true},
+        {"variant": "masked", "query": "Advance a hidden position and velocity vector through a linear transition", "acceptable_artifacts": ["cdg.sciona_atoms_robotics.linear_state_prediction"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Project a tracked vehicle location forward with process uncertainty", "acceptable_artifacts": ["cdg.sciona_atoms_robotics.linear_state_prediction"], "accuracy_required": true}
+      ]
+    }
+  ]
+}

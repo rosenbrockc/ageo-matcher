@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "sources": [
+    {
+      "source_id": "physionet-mitdb-100",
+      "title": "MIT-BIH Arrhythmia Database record 100",
+      "landing_url": "https://physionet.org/content/mitdb/1.0.0/",
+      "license_spdx": "ODC-By-1.0",
+      "license_url": "https://opendatacommons.org/licenses/by/1-0/",
+      "citation": "Moody GB, Mark RG. The impact of the MIT-BIH Arrhythmia Database. IEEE Eng Med Biol. 2001;20(3):45-50. DOI: 10.13026/C2F305.",
+      "files": [
+        {
+          "path": "100.hea",
+          "url": "https://physionet.org/files/mitdb/1.0.0/100.hea",
+          "sha256": "60ebc904c7bf3e04d142638d3fd5c903e8dc9f10f1ea3264e07926aa089ee75e",
+          "size_bytes": 143
+        },
+        {
+          "path": "100.dat",
+          "url": "https://physionet.org/files/mitdb/1.0.0/100.dat",
+          "sha256": "b2ea3c250e56e48f4b7b90697832b8ecd1afa1e0bb31f2dcfea4ed6e1075a639",
+          "size_bytes": 1950000
+        },
+        {
+          "path": "100.atr",
+          "url": "https://physionet.org/files/mitdb/1.0.0/100.atr",
+          "sha256": "8d8a5349fb16638ebbf649f1779d12e96d91b736b2aafe59db43719ae583d471",
+          "size_bytes": 4558
+        }
+      ]
+    },
+    {
+      "source_id": "dimacs-rome99",
+      "title": "DIMACS Challenge 9 Rome99 road network",
+      "landing_url": "https://www.diag.uniroma1.it/~challenge9/download.shtml",
+      "license_spdx": "LicenseRef-DIMACS-Public-Domain",
+      "license_url": "https://www.diag.uniroma1.it/~challenge9/download.shtml",
+      "citation": "Storchi G, Dell'Olmo P, Gentili M. Rome99 road network. 9th DIMACS Implementation Challenge: Shortest Paths, 2006.",
+      "files": [
+        {
+          "path": "rome99.gr",
+          "url": "http://www.diag.uniroma1.it/~challenge9/data/rome/rome99.gr",
+          "sha256": "cbc914b1d02327c2ea788b6f68a332995feadbdc97c1c7890c5e6272152f099d",
+          "size_bytes": 135634
+        }
+      ]
+    },
+    {
+      "source_id": "uci-gps-trajectories",
+      "title": "UCI GPS Trajectories",
+      "landing_url": "https://archive.ics.uci.edu/dataset/354/gps+trajectories",
+      "license_spdx": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "citation": "Cruz M, Macedo H, Barreto R, Guimaraes A. GPS Trajectories. UCI Machine Learning Repository, 2015. DOI: 10.24432/C54S5Z.",
+      "files": [
+        {
+          "path": "gps-trajectories.zip",
+          "url": "https://archive.ics.uci.edu/static/public/354/gps+trajectories.zip",
+          "sha256": "0e19d39a7562722b8aaa02580deade3ae0893921f9dc28d14dedacbde2c2cc94",
+          "size_bytes": 220824
+        }
+      ],
+      "archive": {
+        "kind": "zip_rar",
+        "member": "GPS Trajectory.rar",
+        "required_path": "GPS Trajectory/go_track_trackspoints.csv"
+      }
+    }
+  ]
+}

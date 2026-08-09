@@ -236,15 +236,24 @@ def parse_input_value(raw_val: Any, type_desc: str) -> Any:
     """Parses user input strings/dicts into the expected Python types based on type signatures."""
     type_desc = type_desc.strip()
 
-    # Handle S3 canonical datasets
-    if isinstance(raw_val, str) and raw_val.startswith("s3://"):
+    # Resolve catalog identities selected by the visualizer. Legacy s3://
+    # values remain recognized, but are no longer allowed to bypass catalog
+    # verification unless synthetic fallback is explicitly enabled.
+    dataset_fqn = None
+    if isinstance(raw_val, dict) and set(raw_val) == {"$dataset"}:
+        dataset_fqn = raw_val["$dataset"]
+    elif isinstance(raw_val, str) and raw_val.startswith("s3://"):
+        dataset_fqn = raw_val
+    if dataset_fqn is not None:
+        if not isinstance(dataset_fqn, str) or not dataset_fqn:
+            raise ValueError("Catalog dataset input requires a non-empty FQN")
         from sciona.visualizer.dataset_manager import DatasetManager
         try:
-            logger.info("Resolving S3 dataset FQN: %s", raw_val)
-            return DatasetManager().load_dataset(raw_val)
+            logger.info("Resolving catalog dataset FQN: %s", dataset_fqn)
+            return DatasetManager().load_dataset(dataset_fqn)
         except Exception as e:
-            logger.error("Failed to load S3 dataset %s: %s", raw_val, e)
-            raise ValueError(f"Failed to load S3 dataset {raw_val}: {e}")
+            logger.error("Failed to load catalog dataset %s: %s", dataset_fqn, e)
+            raise ValueError(f"Failed to load catalog dataset {dataset_fqn}: {e}")
     
     # Handle files
     if isinstance(raw_val, str) and (raw_val.endswith(".npy") or raw_val.endswith(".parquet") or raw_val.endswith(".csv") or raw_val.endswith(".json")):

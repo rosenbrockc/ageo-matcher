@@ -73,9 +73,39 @@ async def build_catalog_artifact(
     function_name: str = "solve",
     installer: ProviderInstaller | None = None,
 ) -> ArtifactBuildResult:
-    """Install bound providers and emit executable Python for one catalog CDG."""
+    """Install providers and emit executable Python for a catalog atom or CDG."""
     if not function_name.isidentifier() or keyword.iskeyword(function_name):
         raise ValueError(f"Invalid Python function name {function_name!r}")
+    provider_installer = installer or ProviderInstaller()
+    if not artifact_fqdn.startswith("cdg."):
+        candidate = await client.find(artifact_fqdn)
+        provider_installer.materialize(candidate)
+        module, symbol = artifact_fqdn.rsplit(".", 1)
+        output_path = output_path.expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            "\n".join(
+                [
+                    "from __future__ import annotations",
+                    "",
+                    f"from {module} import {symbol} as _atom",
+                    "",
+                    f"SELECTED_ARTIFACT = {artifact_fqdn!r}",
+                    f"SELECTED_ATOMS = {(artifact_fqdn,)!r}",
+                    "",
+                    f"def {function_name}(*args, **kwargs):",
+                    "    return _atom(*args, **kwargs)",
+                    "",
+                ]
+            )
+        )
+        return ArtifactBuildResult(
+            artifact_fqdn=artifact_fqdn,
+            output_path=output_path,
+            function_name=function_name,
+            selected_fqdns=(artifact_fqdn,),
+        )
+
     document = await client.artifact_document(artifact_fqdn)
     nodes = [dict(row) for row in (document.get("cdg_nodes") or [])]
     edges = [dict(row) for row in (document.get("cdg_edges") or [])]
@@ -94,7 +124,6 @@ async def build_catalog_artifact(
             f"Artifact {artifact_fqdn!r} is not fully bound; missing nodes: {missing}"
         )
 
-    provider_installer = installer or ProviderInstaller()
     callables: dict[str, Any] = {}
     selected: list[str] = []
     for fqdn in sorted(set(bindings.values())):

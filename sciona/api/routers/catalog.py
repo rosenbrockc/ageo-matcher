@@ -13,8 +13,24 @@ from sciona.catalog_embeddings import (
     embedding_config_from_row,
     ordered_response_embeddings,
 )
+from sciona.catalog_query import expand_catalog_query_tokens
 
 router = APIRouter()
+
+_FALLBACK_STOP_WORDS = {
+    "a", "an", "and", "for", "from", "in", "into", "of", "on", "or", "the", "then", "to", "with",
+}
+
+
+def _fallback_text_filter(query: str, *columns: str) -> str:
+    tokens = [
+        token
+        for token in sorted(expand_catalog_query_tokens(query))
+        if len(token) >= 3 and token not in _FALLBACK_STOP_WORDS
+    ][:20]
+    return ",".join(
+        f"{column}.ilike.%{token}%" for token in tokens for column in columns
+    )
 
 
 def _catalog_entry_from_row(
@@ -249,9 +265,9 @@ async def catalog_search(
         "fqdn, technical_description, domain_tags, overall_verdict, risk_tier, trust_readiness"
     )
     if q:
-        query = query.or_(
-            f"fqdn.ilike.%{q}%,technical_description.ilike.%{q}%"
-        )
+        text_filter = _fallback_text_filter(q, "fqdn", "technical_description")
+        if text_filter:
+            query = query.or_(text_filter)
     if domain_tag:
         query = query.contains("domain_tags", [domain_tag])
     result = await query.limit(limit).execute()
@@ -362,7 +378,11 @@ async def artifact_search(
                     for row in rows
                     if domain_tag in (row.get("domain_tags") or [])
                 ]
-            return [_catalog_entry_from_row(row, default_kind="artifact") for row in rows[:limit]]
+            if rows:
+                return [
+                    _catalog_entry_from_row(row, default_kind="artifact")
+                    for row in rows[:limit]
+                ]
         except Exception:
             pass
     try:
@@ -370,7 +390,9 @@ async def artifact_search(
             "fqdn, artifact_kind, technical_description, domain_tags, overall_verdict, risk_tier, trust_readiness"
         )
         if q:
-            query = query.or_(f"fqdn.ilike.%{q}%,technical_description.ilike.%{q}%")
+            text_filter = _fallback_text_filter(q, "fqdn", "technical_description")
+            if text_filter:
+                query = query.or_(text_filter)
         if domain_tag:
             query = query.contains("domain_tags", [domain_tag])
         result = await query.limit(limit).execute()

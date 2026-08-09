@@ -1,273 +1,314 @@
-"""S3 dataset caching, manifest management, and loading utilities."""
+"""Catalog discovery and verified local materialization for data artifacts."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-import pickle
+import os
+import shutil
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Mapping
+from urllib.parse import urlparse
 
 import numpy as np
 
+from sciona.data_catalog import build_default_data_catalog
+
 logger = logging.getLogger(__name__)
 
-# Default cache directory in the workspace
-WORKSPACE_DIR = Path("/Users/conrad/personal/sciona-matcher")
-CACHE_DIR = WORKSPACE_DIR / ".sciona_datasets_cache"
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _default_cache_dir() -> Path:
+    configured = os.environ.get("SCIONA_DATASET_CACHE_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".cache" / "sciona" / "datasets"
 
-def load_curated_inputs_from_repos() -> dict[str, list[str]]:
-    """Scans all sibling repos for cdg.json files and extracts curated_inputs mappings."""
-    from sciona.sdk import _resolve_default_repos
 
-    mapping = {}
-    repos = _resolve_default_repos()
-    for repo in repos:
-        for cdg_path in repo.rglob("cdg.json"):
-            if "solution_cdgs" in str(cdg_path):
-                continue
-            try:
-                with open(cdg_path, "r") as f:
-                    data = json.load(f)
-                if not isinstance(data, dict):
-                    continue
-            except Exception:
-                continue
-
-            parts = cdg_path.parts
-            if "src" in parts:
-                src_idx = parts.index("src")
-                module_parts = parts[src_idx + 1 : -1]
-                module_prefix = ".".join(module_parts)
-            else:
-                module_prefix = ""
-
-            cdg_inputs = data.get("curated_inputs", [])
-
-            for node in data.get("nodes", []):
-                node_name = node.get("name", "")
-                if not node_name:
-                    continue
-                node_inputs = node.get("curated_inputs", [])
-                combined_inputs = list(dict.fromkeys(cdg_inputs + node_inputs))
-                if not combined_inputs:
-                    continue
-
-                if module_prefix:
-                    fqdn = f"{module_prefix}.{node_name}"
-                    mapping[fqdn] = combined_inputs
-
-                mapping[node_name] = combined_inputs
-
-    return mapping
+CACHE_DIR = _default_cache_dir()
 
 
 class DatasetManager:
-    """Manages downloading, caching, loading, and mocking S3-backed canonical datasets."""
+    """Discovers cataloged datasets and materializes verified assets on demand."""
 
-    def __init__(self, cache_dir: Path = CACHE_DIR, s3_bucket: str = "sciona-datasets"):
-        self.cache_dir = Path(cache_dir)
-        self.s3_bucket = s3_bucket
+    def __init__(
+        self,
+        cache_dir: Path | None = None,
+        *,
+        catalog: Any | None = None,
+        allow_synthetic_fallback: bool | None = None,
+    ):
+        self.cache_dir = Path(cache_dir or _default_cache_dir()).expanduser()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._curated_mappings: dict[str, list[str]] | None = None
+        self.catalog = catalog or build_default_data_catalog()
+        self.allow_synthetic_fallback = (
+            _env_flag("SCIONA_DATASET_ALLOW_SYNTHETIC_FALLBACK")
+            if allow_synthetic_fallback is None
+            else allow_synthetic_fallback
+        )
 
-    def get_curated_inputs_for_primitive(self, primitive_name: str) -> list[str]:
-        """Looks up the curated datasets suggested for a given primitive name."""
-        if self._curated_mappings is None:
-            try:
-                self._curated_mappings = load_curated_inputs_from_repos()
-            except Exception as e:
-                logger.error(f"Error loading curated inputs from repos: {e}")
-                self._curated_mappings = {}
+    def list_datasets(
+        self,
+        *,
+        consumer_fqdn: str | None = None,
+        input_port: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return Postgres catalog entries, with cached manifests as offline fallback."""
+        try:
+            rows = self.catalog.list_datasets(
+                consumer_fqdn=consumer_fqdn,
+                input_port=input_port,
+            )
+            if rows or consumer_fqdn is not None:
+                return rows
+        except Exception as exc:
+            logger.info("Postgres data catalog unavailable: %s", exc)
 
-        if primitive_name in self._curated_mappings:
-            return self._curated_mappings[primitive_name]
+        if consumer_fqdn is not None:
+            return []
+        return self._list_cached_manifests()
 
-        short_name = primitive_name.rsplit(".", 1)[-1]
-        if short_name in self._curated_mappings:
-            return self._curated_mappings[short_name]
-
-        return []
-
-    def list_datasets(self) -> list[dict[str, Any]]:
-        """Lists all known curated datasets, scanning cache and adding default mocks."""
-        datasets = {}
-
-        # 1. Start with standard built-in mock datasets
-        default_fqns = [
-            "s3://sciona-datasets/biosppy/ecg_sample_1.npz",
-            "s3://sciona-datasets/matrix/dense_matrix_100x100.npz",
-            "s3://sciona-datasets/signal/sinusoid_50hz.npz",
+    def get_curated_inputs_for_primitive(
+        self,
+        primitive_name: str,
+        *,
+        input_port: str | None = None,
+    ) -> list[str]:
+        """Return data-artifact FQNs backed by compatibility records."""
+        return [
+            str(row["fqn"])
+            for row in self.list_datasets(
+                consumer_fqdn=primitive_name,
+                input_port=input_port,
+            )
         ]
-        for fqn in default_fqns:
-            datasets[fqn] = self._generate_mock_manifest(fqn)
-
-        # 2. Scan local cache directory for any other manifest files (.json)
-        for path in self.cache_dir.rglob("*.json"):
-            if path.name == "run_metadata.json":
-                continue
-            try:
-                with open(path, "r") as f:
-                    manifest = json.load(f)
-                    if "fqn" in manifest:
-                        datasets[manifest["fqn"]] = manifest
-            except Exception:
-                pass
-
-        return list(datasets.values())
-
-    def _parse_s3_uri(self, uri: str) -> tuple[str, str]:
-        """Parses s3://bucket/key -> (bucket, key)"""
-        if not uri.startswith("s3://"):
-            raise ValueError(f"Invalid S3 URI: {uri}")
-        parts = uri[5:].split("/", 1)
-        bucket = parts[0]
-        key = parts[1] if len(parts) > 1 else ""
-        return bucket, key
 
     def get_dataset_path(self, fqn: str) -> Path:
-        """Returns the local cached path for a dataset FQN."""
-        _, key = self._parse_s3_uri(fqn)
-        return self.cache_dir / key
+        """Return the verified content-addressed path for a catalog dataset."""
+        manifest = self.load_manifest(fqn)
+        asset = self._primary_asset(manifest)
+        return self._asset_cache_path(asset)
 
     def get_manifest_path(self, fqn: str) -> Path:
-        """Returns the local cached path for a dataset's manifest."""
-        return Path(str(self.get_dataset_path(fqn)) + ".json")
+        digest = hashlib.sha256(fqn.encode("utf-8")).hexdigest()
+        return self.cache_dir / "manifests" / f"{digest}.json"
 
     def download_dataset(self, fqn: str) -> bool:
-        """Downloads the data file and manifest file from S3 to local cache."""
+        """Materialize a catalog dataset, returning false on retrieval failure."""
         try:
-            import boto3  # type: ignore[import-untyped]
-            from botocore.exceptions import ClientError, NoCredentialsError  # type: ignore[import-untyped]
-        except ImportError:
-            logger.warning("boto3 not installed, cannot download from S3. Using mock/cached data.")
-            return False
-
-        bucket, key = self._parse_s3_uri(fqn)
-        local_data_path = self.get_dataset_path(fqn)
-        local_manifest_path = self.get_manifest_path(fqn)
-
-        local_data_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            session = boto3.Session(profile_name="sciona")
-        except Exception:
-            session = boto3.Session()
-        s3_client = session.client("s3")
-        try:
-            # Download manifest first
-            logger.info(f"Downloading manifest from S3: {fqn}.json")
-            s3_client.download_file(bucket, f"{key}.json", str(local_manifest_path))
-
-            # Download data file
-            logger.info(f"Downloading data from S3: {fqn}")
-            s3_client.download_file(bucket, key, str(local_data_path))
+            self.materialize_dataset(fqn)
             return True
-        except (NoCredentialsError, ClientError) as e:
-            logger.warning(f"S3 download failed for {fqn}: {e}. Falling back to mock/local.")
+        except Exception as exc:
+            logger.warning("Dataset materialization failed for %s: %s", fqn, exc)
             return False
+
+    def materialize_dataset(self, fqn: str) -> Path:
+        """Download and checksum a dataset's primary asset into the local cache."""
+        manifest = self.load_manifest(fqn)
+        asset = self._primary_asset(manifest)
+        target = self._asset_cache_path(asset)
+        if target.exists():
+            try:
+                self._verify_asset(target, asset)
+                return target
+            except ValueError:
+                logger.warning("Discarding corrupt cached dataset asset: %s", target)
+                target.unlink()
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_suffix(target.suffix + ".part")
+        partial.unlink(missing_ok=True)
+        try:
+            self._download_uri(str(asset["storage_uri"]), partial)
+            self._verify_asset(partial, asset)
+            partial.replace(target)
+        except Exception:
+            partial.unlink(missing_ok=True)
+            raise
+        self._cache_manifest(manifest)
+        return target
 
     def load_dataset(self, fqn: str) -> Any:
-        """Loads and returns the cached/downloaded dataset, falling back to mock if needed."""
-        local_path = self.get_dataset_path(fqn)
-
-        # Try to download if not cached
-        if not local_path.exists():
-            success = self.download_dataset(fqn)
-            if not success:
-                return self._generate_mock_dataset(fqn)
-
-        # File exists, load it
-        suffix = local_path.suffix.lower()
+        """Load the primary asset without silently substituting unrelated data."""
         try:
-            if suffix == ".npz":
-                with np.load(local_path, allow_pickle=True) as data:
-                    keys = list(data.keys())
-                    if len(keys) == 1:
-                        return data[keys[0]]
-                    return {k: data[k] for k in keys}
-            elif suffix == ".npy":
-                return np.load(local_path, allow_pickle=True)
-            elif suffix in (".pkl", ".pickle"):
-                with open(local_path, "rb") as f:
-                    return pickle.load(f)
-            elif suffix == ".json":
-                with open(local_path, "r") as f:
-                    return json.load(f)
-            else:
-                raise ValueError(f"Unsupported dataset format: {suffix}")
-        except Exception as e:
-            logger.error(f"Error loading cached dataset {local_path}: {e}. Generating mock fallback.")
+            manifest = self.load_manifest(fqn)
+            asset = self._primary_asset(manifest)
+            path = self.materialize_dataset(fqn)
+            return self._load_path(path, str(asset["format"]))
+        except Exception:
+            if not self.allow_synthetic_fallback:
+                raise
+            logger.warning("Using explicitly enabled synthetic fallback for %s", fqn)
             return self._generate_mock_dataset(fqn)
 
-    def load_manifest(self, fqn: str) -> Dict[str, Any]:
-        """Loads and returns the manifest dictionary, falling back to mock if needed."""
-        local_path = self.get_manifest_path(fqn)
-        if not local_path.exists():
-            self.download_dataset(fqn)
+    def load_manifest(self, fqn: str) -> dict[str, Any]:
+        """Resolve a catalog manifest from Postgres or the offline cache."""
+        try:
+            manifest = self.catalog.get_dataset(fqn)
+            if manifest:
+                return dict(manifest)
+        except Exception as exc:
+            logger.info("Postgres data catalog lookup failed for %s: %s", fqn, exc)
 
-        if local_path.exists():
+        cached_path = self.get_manifest_path(fqn)
+        if cached_path.exists():
+            value = json.loads(cached_path.read_text(encoding="utf-8"))
+            if isinstance(value, dict):
+                return value
+        if self.allow_synthetic_fallback and fqn.startswith("s3://"):
+            return self._generate_mock_manifest(fqn)
+        raise LookupError(f"dataset is not present in the Postgres catalog or local cache: {fqn}")
+
+    def _list_cached_manifests(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        manifests_dir = self.cache_dir / "manifests"
+        if not manifests_dir.exists():
+            return rows
+        for path in sorted(manifests_dir.glob("*.json")):
             try:
-                with open(local_path, "r") as f:
-                    return json.load(f)
-            except Exception:
-                pass
+                value = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(value, dict) and value.get("fqn"):
+                    rows.append(value)
+            except (OSError, json.JSONDecodeError):
+                continue
+        return rows
 
-        return self._generate_mock_manifest(fqn)
+    def _cache_manifest(self, manifest: Mapping[str, Any]) -> None:
+        path = self.get_manifest_path(str(manifest["fqn"]))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(dict(manifest), indent=2, sort_keys=True, default=str),
+            encoding="utf-8",
+        )
 
-    def _generate_mock_dataset(self, fqn: str) -> Any:
-        """Generates synthetic mock datasets for offline/tutorial use."""
-        logger.info(f"Generating mock dataset for FQN: {fqn}")
-        _, key = self._parse_s3_uri(fqn)
-        name = Path(key).name.lower()
+    @staticmethod
+    def _primary_asset(manifest: Mapping[str, Any]) -> dict[str, Any]:
+        assets = manifest.get("assets", [])
+        if isinstance(assets, str):
+            assets = json.loads(assets)
+        if not isinstance(assets, list) or not assets:
+            raise ValueError(f"dataset {manifest.get('fqn', '')!r} has no assets")
+        asset = assets[0]
+        if not isinstance(asset, Mapping):
+            raise ValueError("dataset primary asset is malformed")
+        required = ("sha256", "byte_size", "format", "storage_uri")
+        missing = [field for field in required if asset.get(field) in (None, "")]
+        if missing:
+            raise ValueError(f"dataset asset is missing required fields: {', '.join(missing)}")
+        return dict(asset)
 
+    def _asset_cache_path(self, asset: Mapping[str, Any]) -> Path:
+        digest = str(asset["sha256"]).lower()
+        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ValueError("dataset asset has an invalid sha256")
+        suffix = Path(str(asset.get("asset_path", ""))).suffix
+        if not suffix:
+            suffix = f".{asset['format']}"
+        return self.cache_dir / "objects" / digest[:2] / f"{digest}{suffix}"
+
+    @staticmethod
+    def _verify_asset(path: Path, asset: Mapping[str, Any]) -> None:
+        expected_size = int(asset["byte_size"])
+        actual_size = path.stat().st_size
+        if actual_size != expected_size:
+            raise ValueError(
+                f"dataset asset size mismatch: expected {expected_size}, got {actual_size}"
+            )
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != str(asset["sha256"]).lower():
+            raise ValueError("dataset asset checksum mismatch")
+
+    @staticmethod
+    def _download_uri(uri: str, destination: Path) -> None:
+        parsed = urlparse(uri)
+        if parsed.scheme == "file":
+            shutil.copyfile(Path(parsed.path), destination)
+            return
+        if parsed.scheme in {"http", "https"}:
+            import httpx
+
+            with httpx.stream("GET", uri, timeout=60.0, follow_redirects=True) as response:
+                response.raise_for_status()
+                with destination.open("wb") as handle:
+                    for chunk in response.iter_bytes():
+                        handle.write(chunk)
+            return
+        if parsed.scheme == "s3":
+            try:
+                import boto3  # type: ignore[import-untyped]
+                from botocore import UNSIGNED  # type: ignore[import-untyped]
+                from botocore.config import Config  # type: ignore[import-untyped]
+            except ImportError as exc:
+                raise RuntimeError("boto3 is required to materialize s3:// assets") from exc
+            key = parsed.path.lstrip("/")
+            try:
+                boto3.client("s3").download_file(parsed.netloc, key, str(destination))
+            except Exception as signed_error:
+                try:
+                    boto3.client("s3", config=Config(signature_version=UNSIGNED)).download_file(
+                        parsed.netloc, key, str(destination)
+                    )
+                except Exception as unsigned_error:
+                    raise RuntimeError(
+                        f"signed and anonymous S3 downloads failed: {signed_error}; {unsigned_error}"
+                    ) from unsigned_error
+            return
+        raise ValueError(f"unsupported dataset storage URI scheme: {parsed.scheme or '(none)'}")
+
+    @staticmethod
+    def _load_path(path: Path, asset_format: str) -> Any:
+        if asset_format == "npz":
+            with np.load(path, allow_pickle=False) as data:
+                keys = list(data.keys())
+                if len(keys) == 1:
+                    return data[keys[0]]
+                return {key: data[key] for key in keys}
+        if asset_format == "npy":
+            return np.load(path, allow_pickle=False)
+        if asset_format == "json":
+            return json.loads(path.read_text(encoding="utf-8"))
+        if asset_format in {"parquet", "jsonl"}:
+            import pandas as pd
+
+            return pd.read_parquet(path) if asset_format == "parquet" else pd.read_json(path, lines=True)
+        if asset_format == "txt":
+            return path.read_text(encoding="utf-8")
+        raise ValueError(f"unsupported executable dataset format: {asset_format}")
+
+    @staticmethod
+    def _generate_mock_dataset(fqn: str) -> Any:
+        name = fqn.lower()
         if "ecg" in name:
-            # Synthetic 1D ECG raw signal
             t = np.linspace(0, 10, 36000)
-            sig = 0.5 * np.sin(2 * np.pi * 0.1 * t)  # respiration baseline
+            signal = 0.5 * np.sin(2 * np.pi * 0.1 * t)
             for peak_t in range(1, 10):
-                sig += np.exp(-((t - peak_t) / 0.05) ** 2) * 1.5  # R-peak
-            sig += 0.05 * np.random.randn(len(t))
-            return sig
-        elif "matrix" in name or "dense" in name:
-            return np.random.randn(100, 100)
-        elif "sinusoid" in name:
+                signal += np.exp(-((t - peak_t) / 0.05) ** 2) * 1.5
+            return signal
+        if "matrix" in name or "dense" in name:
+            return np.zeros((100, 100), dtype=np.float64)
+        if "sinusoid" in name:
             t = np.linspace(0, 1, 1000)
             return np.sin(2 * np.pi * 50 * t)
-        else:
-            return np.random.randn(100)
+        return np.zeros(100, dtype=np.float64)
 
-    def _generate_mock_manifest(self, fqn: str) -> Dict[str, Any]:
-        """Generates a mock manifest matching the generated mock dataset."""
-        _, key = self._parse_s3_uri(fqn)
-        filename = Path(key).name
-        name = filename.replace("_", " ").title()
-
-        if "ecg" in filename:
-            shape = [36000, 1]
-            dtype = "float64"
-            desc = "Mock raw ECG sample data generated locally."
-        elif "matrix" in filename or "dense" in filename:
-            shape = [100, 100]
-            dtype = "float64"
-            desc = "Mock 100x100 random float matrix."
-        else:
-            shape = [100]
-            dtype = "float64"
-            desc = f"Mock dataset for {filename}."
-
+    @staticmethod
+    def _generate_mock_manifest(fqn: str) -> dict[str, Any]:
         return {
             "fqn": fqn,
-            "name": name,
-            "type": "numpy.ndarray",
-            "shape": shape,
-            "dtype": dtype,
-            "description": desc,
-            "attribution": {
-                "source": "AGEO-Matcher Local Mock Data Provider",
-                "url": "https://github.com/rosenbrockc/sciona",
-                "license": "MIT",
-            },
+            "name": Path(urlparse(fqn).path).name or fqn,
+            "description": "Synthetic fallback explicitly enabled for local development.",
+            "shape": [],
+            "dtype": "float64",
+            "assets": [],
+            "attribution": {"source": "SCIONA synthetic development fixture"},
         }

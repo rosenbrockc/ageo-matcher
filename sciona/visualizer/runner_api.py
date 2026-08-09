@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 import numpy as np
 
@@ -224,22 +225,31 @@ async def upload_file(
 
 
 @router.get("/api/datasets")
-async def list_datasets():
+async def list_datasets(
+    consumer_fqdn: str | None = Query(None),
+    input_port: str | None = Query(None),
+):
     from sciona.visualizer.dataset_manager import DatasetManager
     try:
-        return DatasetManager().list_datasets()
+        return await run_in_threadpool(
+            lambda: DatasetManager().list_datasets(
+                consumer_fqdn=consumer_fqdn,
+                input_port=input_port,
+            )
+        )
     except Exception as e:
         logger.exception("Failed to list datasets")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/cdg/primitive/{name:path}/curated_inputs")
-async def get_curated_inputs(name: str):
+async def get_curated_inputs(name: str, input_port: str | None = Query(None)):
     from sciona.visualizer.dataset_manager import DatasetManager
     try:
         dm = DatasetManager()
-        fqns = dm.get_curated_inputs_for_primitive(name)
-        return [dm.load_manifest(fqn) for fqn in fqns]
+        return await run_in_threadpool(
+            lambda: dm.list_datasets(consumer_fqdn=name, input_port=input_port)
+        )
     except Exception as e:
         logger.exception("Failed to get curated inputs")
         raise HTTPException(status_code=500, detail=str(e))
@@ -249,7 +259,9 @@ async def get_curated_inputs(name: str):
 async def preview_dataset(fqn: str = Query(..., description="The dataset FQN")):
     from sciona.visualizer.dataset_manager import DatasetManager
     try:
-        return DatasetManager().load_manifest(fqn)
+        return await run_in_threadpool(lambda: DatasetManager().load_manifest(fqn))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.exception("Failed to preview dataset")
         raise HTTPException(status_code=500, detail=str(e))

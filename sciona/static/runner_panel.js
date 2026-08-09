@@ -341,7 +341,7 @@
             if (!isCuratedLoaded) {
               var primitiveName = inp.matched_primitive || inp.nodeName;
               curatedSelect.innerHTML = '<option value="">Loading curated inputs...</option>';
-              fetch("/api/cdg/primitive/" + encodeURIComponent(primitiveName) + "/curated_inputs")
+              fetch("/api/cdg/primitive/" + encodeURIComponent(primitiveName) + "/curated_inputs?input_port=" + encodeURIComponent(inp.name || ""))
                 .then(function (res) { return res.json(); })
                 .then(function (data) {
                   isCuratedLoaded = true;
@@ -455,11 +455,13 @@
             errorFound = true;
           }
         } else if (type === "curated") {
-          val = group.querySelector(".run-curated-select").value;
-          if (!val) {
+          var datasetFqn = group.querySelector(".run-curated-select").value;
+          if (!datasetFqn) {
             runModalError.textContent = "Curated dataset selection required for input '" + name + "'.";
             runModalError.style.display = "block";
             errorFound = true;
+          } else {
+            val = { "$dataset": datasetFqn };
           }
         }
         values[name] = val;

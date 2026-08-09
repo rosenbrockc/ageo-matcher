@@ -99,3 +99,25 @@ async def test_build_catalog_artifact_emits_executable_composition(tmp_path: Pat
     )
     np.testing.assert_array_equal(indices, np.array([2, 4]))
     np.testing.assert_allclose(rates, np.array([60.0, 60.0]))
+
+
+@pytest.mark.asyncio
+async def test_build_catalog_artifact_wraps_a_direct_atom(tmp_path: Path) -> None:
+    class AtomClient:
+        async def find(self, fqdn: str):
+            return SimpleNamespace(fqdn=fqdn)
+
+    class AtomInstaller:
+        def materialize(self, candidate):
+            return lambda value: value + 1
+
+    output = tmp_path / "solution.py"
+    result = await build_catalog_artifact(
+        client=AtomClient(),
+        artifact_fqdn="pkg.increment",
+        output_path=output,
+        installer=AtomInstaller(),
+    )
+
+    assert result.selected_fqdns == ("pkg.increment",)
+    assert "return _atom(*args, **kwargs)" in output.read_text()

@@ -78,6 +78,7 @@ from sciona.commands.atom_cmds import _cmd_atom_publish  # noqa: F401
 from sciona.commands.bounty_cmds import _cmd_bounty_generate  # noqa: F401
 from sciona.commands.catalog_cmds import (  # noqa: F401
     _cmd_catalog_audit_providers,
+    _cmd_catalog_ingest_dataset,
     _cmd_catalog_install,
     _cmd_catalog_publish_providers,
     _cmd_catalog_reconcile_providers,
@@ -952,6 +953,21 @@ def main() -> None:
         action="store_true",
         help="Exit nonzero while any seeded atom is not audit-ready",
     )
+    catalog_dataset_parser = catalog_sub.add_parser(
+        "ingest-dataset",
+        help="Validate or publish data-artifact manifests and atom compatibility",
+    )
+    catalog_dataset_parser.add_argument(
+        "manifest",
+        nargs="+",
+        help="One or more dataset manifest JSON files",
+    )
+    catalog_dataset_parser.add_argument("--database-url", type=str, default=None)
+    catalog_dataset_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write to Postgres; without this flag the command is a dry run",
+    )
 
     # --- atom ---
     atom_parser = subparsers.add_parser(
@@ -1166,11 +1182,13 @@ def main() -> None:
             _cmd_catalog_validate_provider_release(args)
         elif catalog_cmd == "audit-providers":
             _cmd_catalog_audit_providers(args)
+        elif catalog_cmd == "ingest-dataset":
+            _cmd_catalog_ingest_dataset(args)
         else:
             print(
                 "Error: provide a catalog subcommand "
                 "(sync, search, install, publish-providers, reconcile-providers, "
-                "validate-provider-release, audit-providers)",
+                "validate-provider-release, audit-providers, ingest-dataset)",
                 file=sys.stderr,
             )
             sys.exit(1)

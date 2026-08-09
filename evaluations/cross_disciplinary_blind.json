@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "cross-disciplinary-blind-v1",
+  "tasks": [
+    {
+      "task_id": "signal-real-ecg-rate",
+      "discipline": "signal_processing",
+      "evaluator": "ecg_rate",
+      "function_name": "solve",
+      "contract": "Return aligned sample indices and event rates from a sampled one-dimensional waveform.",
+      "variants": [
+        {
+          "variant": "explicit",
+          "query": "Detect heart rate from raw ECG signal",
+          "acceptable_artifacts": ["cdg.sciona_atoms_signal.ecg_heart_rate_biosppy"],
+          "accuracy_required": true
+        },
+        {
+          "variant": "masked",
+          "query": "Estimate event rate from an unlabeled sampled waveform",
+          "acceptable_artifacts": ["cdg.skeleton.signal_detect_measure"],
+          "accuracy_required": false
+        },
+        {
+          "variant": "nearby_domain",
+          "query": "Measure cardiac beat cadence from a noisy biomedical voltage trace",
+          "acceptable_artifacts": ["cdg.sciona_atoms_signal.ecg_heart_rate_biosppy"],
+          "accuracy_required": true
+        }
+      ]
+    },
+    {
+      "task_id": "cs-shortest-path",
+      "discipline": "computer_science",
+      "evaluator": "dijkstra",
+      "function_name": "solve",
+      "contract": "Return single-source distances for a nonnegative weighted sparse graph after validating edge compatibility.",
+      "variants": [
+        {"variant": "explicit", "query": "Compute Dijkstra shortest path distances in a nonnegative weighted graph", "acceptable_artifacts": ["cdg.sciona_atoms_cs.dijkstra_shortest_path"], "accuracy_required": true},
+        {"variant": "masked", "query": "Find the least accumulated cost from one item to every reachable item", "acceptable_artifacts": ["cdg.sciona_atoms_cs.dijkstra_shortest_path"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Choose minimum-latency routes from one network endpoint when every link delay is nonnegative", "acceptable_artifacts": ["cdg.sciona_atoms_cs.dijkstra_shortest_path"], "accuracy_required": true}
+      ]
+    },
+    {
+      "task_id": "geo-wgs84-roundtrip",
+      "discipline": "geospatial",
+      "evaluator": "wgs84_roundtrip",
+      "function_name": "solve",
+      "contract": "Convert WGS84 geodetic arrays to an Earth-centered frame and recover latitude, longitude, and altitude.",
+      "variants": [
+        {"variant": "explicit", "query": "Round trip WGS84 latitude longitude altitude through ECEF coordinates", "acceptable_artifacts": ["cdg.sciona_atoms_geo.wgs84_ecef_roundtrip"], "accuracy_required": true},
+        {"variant": "masked", "query": "Translate global angular positions and heights into a centered Cartesian frame and recover the originals", "acceptable_artifacts": ["cdg.sciona_atoms_geo.wgs84_ecef_roundtrip"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Verify satellite navigation coordinates by converting ground fixes to Earth-fixed x y z and back", "acceptable_artifacts": ["cdg.sciona_atoms_geo.wgs84_ecef_roundtrip"], "accuracy_required": true}
+      ]
+    },
+    {
+      "task_id": "robotics-linear-state-prediction",
+      "discipline": "robotics",
+      "evaluator": "linear_state_prediction",
+      "function_name": "solve",
+      "contract": "Initialize a linear state and covariance, predict one step, and return the primary predicted component.",
+      "variants": [
+        {"variant": "explicit", "query": "Predict a robot linear Kalman state and covariance one step then read position", "acceptable_artifacts": ["cdg.sciona_atoms_robotics.linear_state_prediction"], "accuracy_required": true},
+        {"variant": "masked", "query": "Propagate a hidden vector and its uncertainty through a linear transition then return its first component", "acceptable_artifacts": ["cdg.sciona_atoms_robotics.linear_state_prediction"], "accuracy_required": true},
+        {"variant": "nearby_domain", "query": "Project a vehicle motion estimate forward with process noise and report predicted position", "acceptable_artifacts": ["cdg.sciona_atoms_robotics.linear_state_prediction"], "accuracy_required": true}
+      ]
+    }
+  ]
+}

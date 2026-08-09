@@ -23,9 +23,19 @@ def _tokenize(text: str) -> set[str]:
     return set(_TOKEN_PATTERN.findall((text or "").lower()))
 
 
+def _name_matches_goal(name: str, normalized_goal: str) -> bool:
+    normalized_name = _normalize_text(name)
+    phrases = {normalized_name}
+    for suffix in (" skeleton", " pattern", " workflow", " combinator"):
+        if normalized_name.endswith(suffix):
+            phrases.add(normalized_name[: -len(suffix)])
+    return any(phrase and phrase in normalized_goal for phrase in phrases)
+
+
 @dataclass(frozen=True)
 class _CandidateScore:
     context_mismatch: int
+    named_goal_match: int
     context_match: int
     exact_goal_match: int
     goal_overlap: float
@@ -77,6 +87,7 @@ def _rank_key(goal: str, candidate: MacroArtifactCandidate) -> tuple[Any, ...]:
             if str(part or "").strip()
         )
     )
+    named_goal_match = int(_name_matches_goal(candidate.name, normalized_goal))
     exact_goal_match = int(normalized_goal != "" and normalized_goal == _normalize_text(candidate_text))
     goal_overlap = (
         len(goal_tokens & candidate_tokens) / max(1, len(goal_tokens))
@@ -92,6 +103,7 @@ def _rank_key(goal: str, candidate: MacroArtifactCandidate) -> tuple[Any, ...]:
     coverage = max(0.0, min(1.0, _safe_float(candidate.verified_leaf_coverage)))
     score_parts = _CandidateScore(
         context_mismatch=context_mismatch,
+        named_goal_match=named_goal_match,
         context_match=context_match,
         exact_goal_match=exact_goal_match,
         goal_overlap=goal_overlap,
@@ -104,6 +116,7 @@ def _rank_key(goal: str, candidate: MacroArtifactCandidate) -> tuple[Any, ...]:
     )
     return (
         score_parts.context_mismatch,
+        -score_parts.named_goal_match,
         -score_parts.context_match,
         -score_parts.exact_goal_match,
         -score_parts.goal_overlap,
@@ -127,6 +140,9 @@ def _match_score(goal: str, candidate: MacroArtifactCandidate) -> float:
         )
     )
     exact = float(int(_normalize_text(goal) == _normalize_text(_candidate_text(candidate)) and goal.strip()))
+    named_goal_match = float(
+        int(_name_matches_goal(candidate.name, _normalize_text(goal)))
+    )
     goal_overlap = len(goal_tokens & candidate_tokens) / max(1, len(goal_tokens)) if goal_tokens else 0.0
     summary_overlap = len(goal_tokens & summary_tokens) / max(1, len(goal_tokens)) if goal_tokens else 0.0
     coverage = max(0.0, min(1.0, _safe_float(candidate.verified_leaf_coverage)))
@@ -139,6 +155,7 @@ def _match_score(goal: str, candidate: MacroArtifactCandidate) -> float:
     context_penalty = 1.5 if required_tokens and not context_match else 0.0
     return (
         (1.5 * exact)
+        + named_goal_match
         + goal_overlap
         + (0.5 * summary_overlap)
         + (0.25 * coverage)

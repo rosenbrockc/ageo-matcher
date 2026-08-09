@@ -196,6 +196,11 @@ The PDG file is a JSON array:
 
 ## Development
 
+The [cross-disciplinary blind evaluation](docs/CROSS_DISCIPLINARY_BLIND_EVALUATION.md)
+exercises catalog retrieval, cold provider installation, deterministic CDG
+assembly, hidden correctness checks, PostgreSQL scale, and optional agent
+comparison arms against checksum-pinned public datasets.
+
 ```bash
 pip install -e ".[dev]"
 pytest                     # run all tests (skips slow/model-download tests)

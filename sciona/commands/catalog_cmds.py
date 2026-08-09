@@ -163,3 +163,22 @@ def _cmd_catalog_audit_providers(args: argparse.Namespace) -> None:
     print(json.dumps(report, indent=2, sort_keys=True))
     if args.strict and report["totals"]["audit_gap"]:
         raise SystemExit(1)
+
+
+def _cmd_catalog_ingest_dataset(args: argparse.Namespace) -> None:
+    """Validate or publish versioned dataset manifests and compatibility evidence."""
+    from sciona.data_catalog import ingest_dataset_manifests
+
+    database_url = (
+        args.database_url
+        or os.environ.get("SCIONA_DATA_CATALOG_DATABASE_URL", "").strip()
+        or os.environ.get("SCIONA_POSTGRES_URI", "").strip()
+        or os.environ.get("SUPABASE_DATABASE_URL", "").strip()
+        or None
+    )
+    result = ingest_dataset_manifests(
+        args.manifest,
+        database_url=database_url,
+        apply=args.apply,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))

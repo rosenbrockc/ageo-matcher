@@ -49,6 +49,12 @@ class AgeomConfig(BaseSettings):
     embedding_batch_size: int = 32
     semantic_index_backend: str = "postgres"  # "postgres" | "auto" | "faiss" | "lexical"
 
+    # Public data-artifact catalog and verified local materialization
+    data_catalog_database_url: str = ""
+    data_catalog_url: str = ""
+    dataset_cache_dir: Path = Field(default=Path.home() / ".cache" / "sciona" / "datasets")
+    dataset_allow_synthetic_fallback: bool = False
+
     # FAISS index
     index_dir: Path = Field(default=Path("data/index"))
 

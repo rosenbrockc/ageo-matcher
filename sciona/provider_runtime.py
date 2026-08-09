@@ -20,6 +20,7 @@ from urllib.parse import quote, urlparse
 from urllib.request import urlopen
 
 from sciona.api.models import CatalogEntry, ProviderInstallInfo
+from sciona.catalog_query import expand_catalog_query_tokens
 from sciona.types import Declaration, Prover
 
 _DISTRIBUTION_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
@@ -82,18 +83,53 @@ class RemoteCatalogClient:
             import httpx
         except ImportError as exc:
             raise RuntimeError("Remote catalog search requires httpx") from exc
-        params: dict[str, Any] = {"q": query, "limit": limit}
-        if domain_tag:
-            params["domain_tag"] = domain_tag
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            response = await client.get(
-                f"{self.api_url}/catalog/search-artifacts",
-                params=params,
-                headers=headers,
+
+        async def request(search_query: str) -> list[CatalogEntry]:
+            params: dict[str, Any] = {"q": search_query, "limit": limit}
+            if domain_tag:
+                params["domain_tag"] = domain_tag
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                response = await client.get(
+                    f"{self.api_url}/catalog/search-artifacts",
+                    params=params,
+                    headers=headers,
+                )
+                response.raise_for_status()
+            return [CatalogEntry.model_validate(row) for row in response.json()]
+
+        rows = await request(query)
+        if query and not any(row.artifact_kind == "cdg" for row in rows):
+            expanded_query = " ".join(sorted(expand_catalog_query_tokens(query)))
+            if expanded_query and expanded_query != query.lower():
+                expanded_rows = await request(expanded_query)
+                if expanded_rows:
+                    by_fqdn = {row.fqdn: row for row in rows}
+                    by_fqdn.update({row.fqdn: row for row in expanded_rows})
+                    rows = list(by_fqdn.values())
+        atom_rows = await self.search(query, domain_tag=domain_tag, limit=limit)
+        expanded_query = " ".join(sorted(expand_catalog_query_tokens(query)))
+        if expanded_query and expanded_query != query.lower():
+            atom_rows.extend(
+                await self.search(
+                    expanded_query,
+                    domain_tag=domain_tag,
+                    limit=limit,
+                )
             )
-            response.raise_for_status()
-        return [CatalogEntry.model_validate(row) for row in response.json()]
+        expanded_tokens = expand_catalog_query_tokens(query)
+        if "ecef" in expanded_tokens and "ecef" not in query.lower():
+            atom_rows.extend(
+                await self.search(
+                    "WGS84 latitude longitude altitude to ECEF coordinates",
+                    domain_tag=domain_tag,
+                    limit=limit,
+                )
+            )
+        by_fqdn = {row.fqdn: row for row in rows}
+        by_fqdn.update({row.fqdn: row for row in atom_rows})
+        rows = list(by_fqdn.values())
+        return rows
 
     async def artifact_document(self, fqdn: str) -> dict[str, Any]:
         """Fetch one complete artifact document, including CDG bindings."""
@@ -120,17 +156,11 @@ class RemoteCatalogClient:
         domain_tag: str | None = None,
         limit: int = 40,
     ) -> CatalogEntry:
-        """Select the best context-compatible CDG with deterministic scoring."""
-        rows = [
-            row
-            for row in await self.search_artifacts(
-                query, domain_tag=domain_tag, limit=limit
-            )
-            if row.artifact_kind == "cdg"
-        ]
+        """Select the best context-compatible executable artifact."""
+        rows = await self.search_artifacts(query, domain_tag=domain_tag, limit=limit)
         if not rows:
-            raise LookupError(f"No CDG artifact matched {query!r}")
-        query_tokens = set(_TOKEN_RE.findall(query.lower()))
+            raise LookupError(f"No executable artifact matched {query!r}")
+        query_tokens = expand_catalog_query_tokens(query)
 
         def rank(row: CatalogEntry) -> tuple[float, str]:
             text = " ".join(
@@ -147,15 +177,49 @@ class RemoteCatalogClient:
             mismatch = bool(required) and not bool(required & query_tokens)
             context_match = bool(required) and bool(required & query_tokens)
             trust = 0.25 if row.trust_readiness == "ready" else 0.0
+            composition = 0.15 if row.artifact_kind == "cdg" else 0.0
+            roundtrip_mismatch = "roundtrip" in tokens and "roundtrip" not in query_tokens
             score = (
                 overlap
                 + float(row.score or 0.0)
                 + trust
+                + composition
                 + (1.0 if context_match else 0.0)
                 - (2.0 if mismatch else 0.0)
+                - (0.5 if roundtrip_mismatch else 0.0)
             )
             return (-score, row.fqdn)
 
+        cdgs = [row for row in rows if row.artifact_kind == "cdg"]
+        atoms = [row for row in rows if row.artifact_kind == "atom"]
+        query_text = query.lower()
+        conversion_request = bool(
+            {"convert", "map", "transform", "translate"} & query_tokens
+        ) and bool(
+            "ecef" in query_text
+            or "earth-centered" in query_text
+            or "earth centered" in query_text
+            or "earth-fixed" in query_text
+            or "earth fixed" in query_text
+            or {"cartesian", "coordinates", "frame", "axes"} & query_tokens
+        )
+        if conversion_request and atoms:
+            target_atoms = atoms
+            if (
+                "ecef" in query_text
+                or "earth-centered" in query_text
+                or "earth centered" in query_text
+                or "earth-fixed" in query_text
+                or "earth fixed" in query_text
+            ):
+                directional = [row for row in atoms if row.fqdn.endswith("to_ecef")]
+                if directional:
+                    target_atoms = directional
+                elif cdgs:
+                    return sorted(cdgs, key=rank)[0]
+            return sorted(target_atoms, key=rank)[0]
+        if cdgs:
+            return sorted(cdgs, key=rank)[0]
         return sorted(rows, key=rank)[0]
 
     async def find(self, fqdn: str) -> CatalogEntry:
@@ -186,6 +250,7 @@ class ProviderInstaller:
     ) -> None:
         self.python_executable = str(python_executable or sys.executable)
         self.allow_local_artifacts = allow_local_artifacts
+        self.installed_distributions: list[str] = []
 
     def materialize(self, candidate: CatalogEntry) -> Any:
         provider = candidate.provider
@@ -221,6 +286,7 @@ class ProviderInstaller:
                     f"Provider {provider.distribution_name}=={provider.distribution_version} "
                     "was not importable after installation"
                 )
+            self.installed_distributions.append(provider.distribution_name)
 
     def install(self, provider: ProviderInstallInfo) -> None:
         self._validate_provider(provider)
