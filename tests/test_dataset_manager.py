@@ -166,3 +166,31 @@ def test_runner_resolves_structured_dataset_reference() -> None:
 
     np.testing.assert_array_equal(result, expected)
     load.assert_called_once_with("sciona.data.synthetic.signal.v1")
+
+
+def test_sparse_npz_loader_preserves_csr_input(tmp_path: Path) -> None:
+    from scipy.sparse import csr_array, save_npz
+
+    source = tmp_path / "graph.npz"
+    expected = csr_array([[0.0, 2.0], [0.0, 0.0]])
+    save_npz(source, expected)
+    payload = source.read_bytes()
+    row = {
+        "fqn": "sciona.data.synthetic.graph.v1",
+        "assets": [
+            {
+                "asset_path": "graph.npz",
+                "byte_size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "format": "npz",
+                "storage_uri": source.as_uri(),
+                "loader_name": "scipy.sparse.load_npz",
+            }
+        ],
+    }
+    manager = DatasetManager(cache_dir=tmp_path / "cache", catalog=FakeCatalog([row]))
+
+    loaded = manager.load_dataset(row["fqn"])
+
+    assert isinstance(loaded, csr_array)
+    np.testing.assert_array_equal(loaded.toarray(), expected.toarray())

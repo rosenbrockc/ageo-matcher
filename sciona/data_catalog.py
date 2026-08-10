@@ -320,8 +320,15 @@ class PostgresDataCatalog:
                     "SELECT artifact_id FROM public.artifacts WHERE fqdn = %s",
                     (link["consumer_fqdn"],),
                 )
-                consumer = cursor.fetchone()
-                if not consumer:
+                consumer_artifact = cursor.fetchone()
+                consumer_atom = None
+                if not consumer_artifact:
+                    cursor.execute(
+                        "SELECT atom_id FROM public.atoms WHERE fqdn = %s",
+                        (link["consumer_fqdn"],),
+                    )
+                    consumer_atom = cursor.fetchone()
+                if not consumer_artifact and not consumer_atom:
                     raise ValueError(
                         "compatibility consumer is not in the catalog: "
                         f"{link['consumer_fqdn']}"
@@ -329,13 +336,16 @@ class PostgresDataCatalog:
                 cursor.execute(
                     """
                     INSERT INTO public.artifact_data_compatibility (
-                        consumer_artifact_id, input_port, data_version_id,
+                        consumer_fqdn, consumer_artifact_id, consumer_atom_id,
+                        input_port, data_version_id,
                         compatibility_kind, evidence_json, confidence, verified_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s,
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
                               CASE WHEN %s IN ('validated', 'benchmark') THEN now() ELSE NULL END)
                     ON CONFLICT (
-                        consumer_artifact_id,
+                        consumer_fqdn,
                         (COALESCE(consumer_version_id,
+                          '00000000-0000-0000-0000-000000000000'::uuid)),
+                        (COALESCE(consumer_atom_version_id,
                           '00000000-0000-0000-0000-000000000000'::uuid)),
                         input_port, data_version_id, compatibility_kind
                     ) DO UPDATE SET
@@ -344,7 +354,9 @@ class PostgresDataCatalog:
                         verified_at = EXCLUDED.verified_at
                     """,
                     (
-                        consumer["artifact_id"],
+                        link["consumer_fqdn"],
+                        consumer_artifact["artifact_id"] if consumer_artifact else None,
+                        consumer_atom["atom_id"] if consumer_atom else None,
                         link.get("input_port", ""),
                         version_id,
                         link.get("kind", "validated"),

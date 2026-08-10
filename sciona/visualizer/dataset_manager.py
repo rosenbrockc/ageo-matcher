@@ -141,7 +141,11 @@ class DatasetManager:
             manifest = self.load_manifest(fqn)
             asset = self._primary_asset(manifest)
             path = self.materialize_dataset(fqn)
-            return self._load_path(path, str(asset["format"]))
+            return self._load_path(
+                path,
+                str(asset["format"]),
+                loader_name=str(asset.get("loader_name", "")),
+            )
         except Exception:
             if not self.allow_synthetic_fallback:
                 raise
@@ -266,7 +270,11 @@ class DatasetManager:
         raise ValueError(f"unsupported dataset storage URI scheme: {parsed.scheme or '(none)'}")
 
     @staticmethod
-    def _load_path(path: Path, asset_format: str) -> Any:
+    def _load_path(path: Path, asset_format: str, *, loader_name: str = "") -> Any:
+        if loader_name == "scipy.sparse.load_npz":
+            from scipy.sparse import load_npz
+
+            return load_npz(path)
         if asset_format == "npz":
             with np.load(path, allow_pickle=False) as data:
                 keys = list(data.keys())

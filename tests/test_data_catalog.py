@@ -104,3 +104,17 @@ def test_data_artifact_migration_is_mirrored_and_publicly_readable() -> None:
     assert "CREATE TABLE IF NOT EXISTS public.artifact_data_compatibility" in matcher_sql
     assert "CREATE OR REPLACE FUNCTION public.catalog_data_artifacts" in matcher_sql
     assert "TO anon, authenticated" in matcher_sql
+
+
+def test_provider_atom_compatibility_migration_is_mirrored() -> None:
+    root = Path(__file__).resolve().parents[1]
+    relative = Path(
+        "supabase/migrations/20260809000000_data_compatibility_provider_atoms.sql"
+    )
+    matcher_sql = (root / relative).read_text(encoding="utf-8")
+    infra_sql = (root.parent / "sciona-infra" / relative).read_text(encoding="utf-8")
+
+    assert matcher_sql == infra_sql
+    assert "consumer_atom_id UUID REFERENCES public.atoms(atom_id)" in matcher_sql
+    assert "consumer_fqdn TEXT NOT NULL" in matcher_sql
+    assert "compatibility_row.consumer_fqdn = p_consumer_fqdn" in matcher_sql
