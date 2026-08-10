@@ -1,0 +1,84 @@
+{
+  "fqn": "sciona.data.physionet.mitdb.record100.lead0.60s.v1",
+  "version": "1.1.0",
+  "name": "MIT-BIH record 100 lead 0, first 60 seconds",
+  "description": "A public waveform excerpt with reference beat annotations for local graph execution and evaluation.",
+  "modality": "ecg_time_series",
+  "media_type": "application/x-npy",
+  "schema": {
+    "array_role": "waveform",
+    "channel": 0
+  },
+  "shape": [21600],
+  "dtype": "float64",
+  "sampling": {
+    "duration_seconds": 60.0,
+    "frequency_hz": 360.0
+  },
+  "evaluation": {
+    "schema_version": "1.0",
+    "objective": "mae",
+    "prediction_node_id": "measure",
+    "spec": {
+      "loss": "mae",
+      "prediction": {
+        "value_output": "rate",
+        "time_output": "indices",
+        "time_kind": "timestamp"
+      },
+      "reference": {
+        "value_source": "reference_rate",
+        "time_source": "reference_index"
+      }
+    },
+    "reference_data": {
+      "reference_index": [370, 662, 946, 1231, 1515, 1809, 2044, 2402, 2706, 2998, 3282, 3560, 3862, 4170, 4466, 4764, 5060, 5346, 5633, 5918, 6214, 6527, 6823, 7106, 7391, 7670, 7953, 8245, 8539, 8837, 9141, 9431, 9710, 9998, 10282, 10591, 10894, 11191, 11480, 11781, 12066, 12350, 12645, 12949, 13266, 13562, 13842, 14131, 14423, 14710, 15011, 15310, 15607, 15899, 16183, 16464, 16755, 17058, 17358, 17657, 17947, 18227, 18514, 18795, 19080, 19388, 19693, 19989, 20271, 20554, 20837, 21131, 21423],
+      "reference_rate": [73.7201365188, 73.9726027397, 76.0563380282, 75.7894736842, 76.0563380282, 73.4693877551, 91.914893617, 60.3351955307, 71.0526315789, 73.9726027397, 76.0563380282, 77.6978417266, 71.5231788079, 70.1298701299, 72.972972973, 72.4832214765, 72.972972973, 75.5244755245, 75.2613240418, 75.7894736842, 72.972972973, 69.0095846645, 72.972972973, 76.3250883392, 75.7894736842, 77.4193548387, 76.3250883392, 73.9726027397, 73.4693877551, 72.4832214765, 71.0526315789, 74.4827586207, 77.4193548387, 75.0, 76.0563380282, 69.9029126214, 71.2871287129, 72.7272727273, 74.7404844291, 71.7607973422, 75.7894736842, 76.0563380282, 73.2203389831, 71.0526315789, 68.1388012618, 72.972972973, 77.1428571429, 74.7404844291, 73.9726027397, 75.2613240418, 71.7607973422, 72.2408026756, 72.7272727273, 73.9726027397, 76.0563380282, 76.8683274021, 74.2268041237, 71.2871287129, 72.0, 72.2408026756, 74.4827586207, 77.1428571429, 75.2613240418, 76.8683274021, 75.7894736842, 70.1298701299, 70.8196721311, 72.972972973, 76.5957446809, 76.3250883392, 76.3250883392, 73.4693877551, 73.9726027397]
+    }
+  },
+  "attribution": {
+    "citation": "Moody GB, Mark RG. The impact of the MIT-BIH Arrhythmia Database. IEEE Eng Med Biol. 2001;20(3):45-50.",
+    "source": "MIT-BIH Arrhythmia Database",
+    "url": "https://physionet.org/content/mitdb/1.0.0/"
+  },
+  "license_expression": "ODC-By-1.0",
+  "source_uri": "https://physionet.org/content/mitdb/1.0.0/",
+  "intended_use": "Public local evaluation of filtering, recurring-event detection, and rate-estimation pipelines.",
+  "limitations": [
+    "Single public record and channel; not representative of all waveform morphology or noise conditions.",
+    "Evaluation input only; not intended for clinical decision making."
+  ],
+  "assets": [
+    {
+      "asset_path": "mitdb-100-lead0-60s.npy",
+      "byte_size": 172928,
+      "sha256": "d5acbc5c1bdcbcff0f1b3e8836d71d04c0f963072da5dfc281f9c9a0cd878f60",
+      "format": "npy",
+      "media_type": "application/x-npy",
+      "storage_uri": "http://127.0.0.1:55321/storage/v1/object/public/public-datasets/physionet/mitdb/100/lead0-60s.npy"
+    }
+  ],
+  "compatibility": [
+    {
+      "consumer_fqdn": "sciona.atoms.signal_processing.biosppy.ecg.bandpass_filter",
+      "input_port": "signal",
+      "kind": "validated",
+      "confidence": 1.0,
+      "evidence": {"source_id": "physionet-mitdb-100", "suite": "cross-disciplinary-open-data-v1"}
+    },
+    {
+      "consumer_fqdn": "cdg.sciona_atoms_signal.ecg_heart_rate_biosppy",
+      "input_port": "signal",
+      "kind": "validated",
+      "confidence": 1.0,
+      "evidence": {"source_id": "physionet-mitdb-100", "suite": "cross-disciplinary-open-data-v1"}
+    },
+    {
+      "consumer_fqdn": "cdg.skeleton.signal_detect_measure",
+      "input_port": "signal",
+      "kind": "example",
+      "confidence": 0.8,
+      "evidence": {"source_id": "physionet-mitdb-100", "suite": "cross-disciplinary-open-data-v1", "variant": "masked"}
+    }
+  ]
+}

@@ -74,6 +74,28 @@ def test_manifest_validation_rejects_unverified_assets() -> None:
         validate_dataset_manifest(manifest)
 
 
+def test_manifest_validation_preserves_evaluation_contract() -> None:
+    manifest = _manifest()
+    manifest["evaluation"] = {
+        "objective": "mae",
+        "prediction_node_id": "measure",
+        "spec": {"loss": "mae"},
+        "reference_data": {"expected": [1.0]},
+    }
+
+    normalized = validate_dataset_manifest(manifest)
+
+    assert normalized["evaluation"]["prediction_node_id"] == "measure"
+
+
+def test_manifest_validation_rejects_non_object_evaluation() -> None:
+    manifest = _manifest()
+    manifest["evaluation"] = []
+
+    with pytest.raises(ValueError, match="evaluation must be an object"):
+        validate_dataset_manifest(manifest)
+
+
 def test_ingestion_defaults_to_dry_run_without_connecting(tmp_path: Path) -> None:
     path = tmp_path / "dataset.json"
     path.write_text(json.dumps(_manifest()), encoding="utf-8")
@@ -118,3 +140,16 @@ def test_provider_atom_compatibility_migration_is_mirrored() -> None:
     assert "consumer_atom_id UUID REFERENCES public.atoms(atom_id)" in matcher_sql
     assert "consumer_fqdn TEXT NOT NULL" in matcher_sql
     assert "compatibility_row.consumer_fqdn = p_consumer_fqdn" in matcher_sql
+
+
+def test_data_evaluation_migration_is_mirrored() -> None:
+    root = Path(__file__).resolve().parents[1]
+    relative = Path(
+        "supabase/migrations/20260810000000_data_artifact_evaluation_metadata.sql"
+    )
+    matcher_sql = (root / relative).read_text(encoding="utf-8")
+    infra_sql = (root.parent / "sciona-infra" / relative).read_text(encoding="utf-8")
+
+    assert matcher_sql == infra_sql
+    assert "evaluation_metadata JSONB" in matcher_sql
+    assert "evaluation JSONB" in matcher_sql

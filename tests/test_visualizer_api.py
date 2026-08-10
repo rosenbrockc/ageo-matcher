@@ -6,6 +6,7 @@ import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 import pytest
 
 
@@ -55,6 +56,70 @@ class _FakeSession:
 
     async def __aexit__(self, *exc):
         return False
+
+
+class TestRunEvaluation:
+    def test_scores_persisted_outputs_from_dataset_catalog_contract(
+        self, client, monkeypatch, tmp_path
+    ):
+        from sciona.visualizer import runner_api
+
+        node_dir = tmp_path / "run-1" / "measure"
+        node_dir.mkdir(parents=True)
+        np.save(node_dir / "out_indices.npy", np.array([10.0, 20.0, 30.0]))
+        np.save(node_dir / "out_rate.npy", np.array([61.0, 59.0, 60.0]))
+        monkeypatch.setattr(runner_api, "RUNS_DIR", tmp_path)
+        manifest = {
+            "fqn": "sciona.data.example",
+            "evaluation": {
+                "objective": "mae",
+                "prediction_node_id": "measure",
+                "spec": {
+                    "loss": "mae",
+                    "prediction": {
+                        "value_output": "rate",
+                        "time_output": "indices",
+                        "time_kind": "timestamp",
+                    },
+                    "reference": {
+                        "value_source": "reference_rate",
+                        "time_source": "reference_index",
+                    },
+                },
+                "reference_data": {
+                    "reference_index": [10.0, 20.0, 30.0],
+                    "reference_rate": [60.0, 60.0, 60.0],
+                },
+            },
+        }
+        with patch(
+            "sciona.visualizer.dataset_manager.DatasetManager.load_manifest",
+            return_value=manifest,
+        ):
+            response = client.post(
+                "/api/cdg/runs/run-1/evaluate",
+                json={"dataset_fqn": manifest["fqn"], "version_id": "candidate-1"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["evaluation_source"] == "catalog"
+        assert payload["version_id"] == "candidate-1"
+        assert payload["loss"] == pytest.approx(2 / 3)
+        assert payload["metrics"]["n_eval_samples"] == 3
+
+    def test_requires_evaluation_metadata(self, client):
+        with patch(
+            "sciona.visualizer.dataset_manager.DatasetManager.load_manifest",
+            return_value={"fqn": "sciona.data.unscored", "evaluation": {}},
+        ):
+            response = client.post(
+                "/api/cdg/runs/run-1/evaluate",
+                json={"dataset_fqn": "sciona.data.unscored"},
+            )
+
+        assert response.status_code == 422
+        assert "does not define catalog evaluation metadata" in response.json()["detail"]
 
 
 def _make_result(records):

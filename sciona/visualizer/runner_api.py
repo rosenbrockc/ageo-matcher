@@ -16,7 +16,13 @@ from starlette.concurrency import run_in_threadpool
 import numpy as np
 
 from sciona.architect.handoff import CDGExport
-from sciona.visualizer.runner import CDGExecutionSession, RUNS_DIR, safe_eval_slice
+from sciona.principal.eval_spec import compute_evaluation_payload
+from sciona.visualizer.runner import (
+    CDGExecutionSession,
+    RUNS_DIR,
+    load_cached_outputs,
+    safe_eval_slice,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +32,55 @@ router = APIRouter()
 class RunCDGRequest(BaseModel):
     inputs: Dict[str, Any]
     cdg: CDGExport | None = None
+
+
+class EvaluateRunRequest(BaseModel):
+    dataset_fqn: str
+    version_id: str | None = None
+
+
+def _evaluation_contract(manifest: Dict[str, Any]) -> Dict[str, Any]:
+    evaluation = manifest.get("evaluation", {})
+    if not isinstance(evaluation, dict) or not evaluation:
+        raise ValueError("selected dataset does not define catalog evaluation metadata")
+    if not isinstance(evaluation.get("spec"), dict):
+        raise ValueError("dataset evaluation metadata requires a spec object")
+    if not isinstance(evaluation.get("reference_data"), dict):
+        raise ValueError("dataset evaluation metadata requires reference_data")
+    if not str(evaluation.get("prediction_node_id", "")).strip():
+        raise ValueError("dataset evaluation metadata requires prediction_node_id")
+    return evaluation
+
+
+def _evaluate_persisted_run(
+    run_id: str,
+    manifest: Dict[str, Any],
+    *,
+    version_id: str | None,
+) -> Dict[str, Any]:
+    evaluation = _evaluation_contract(manifest)
+    node_id = str(evaluation["prediction_node_id"])
+    persisted = load_cached_outputs(RUNS_DIR / run_id, node_id)
+    if not persisted:
+        raise LookupError(f"run has no persisted outputs for evaluation node {node_id!r}")
+    outputs = {
+        name.removeprefix("out_"): value
+        for name, value in persisted.items()
+    }
+    metrics = compute_evaluation_payload(
+        outputs,
+        evaluation["reference_data"],
+        evaluation["spec"],
+    )
+    return {
+        "dataset_fqn": manifest.get("fqn", ""),
+        "version_id": version_id,
+        "objective": str(evaluation.get("objective") or evaluation["spec"].get("loss", "")),
+        "loss": metrics["loss"],
+        "metrics": metrics,
+        "prediction_node_id": node_id,
+        "evaluation_source": "catalog",
+    }
 
 
 @router.post("/api/cdg/run")
@@ -52,6 +107,31 @@ async def run_cdg(
     except Exception as e:
         logger.exception("Error executing CDG")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/cdg/runs/{run_id}/evaluate")
+async def evaluate_cdg_run(run_id: str, body: EvaluateRunRequest):
+    """Score persisted graph outputs using the selected dataset's catalog contract."""
+    from sciona.visualizer.dataset_manager import DatasetManager
+
+    try:
+        manifest = await run_in_threadpool(
+            lambda: DatasetManager().load_manifest(body.dataset_fqn)
+        )
+        return await run_in_threadpool(
+            lambda: _evaluate_persisted_run(
+                run_id,
+                manifest,
+                version_id=body.version_id,
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except (KeyError, TypeError, ValueError, IndexError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to evaluate CDG run")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/api/cdg/runs")

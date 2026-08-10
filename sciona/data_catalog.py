@@ -81,6 +81,10 @@ def validate_dataset_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         if not 0.0 <= confidence <= 1.0:
             raise ValueError(f"compatibility[{index}].confidence must be between 0 and 1")
 
+    evaluation = normalized.get("evaluation", {})
+    if not isinstance(evaluation, Mapping):
+        raise ValueError("evaluation must be an object")
+
     normalized.setdefault("name", normalized["fqn"])
     normalized.setdefault("modality", "")
     normalized.setdefault("media_type", "application/octet-stream")
@@ -88,6 +92,7 @@ def validate_dataset_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     normalized.setdefault("shape", [])
     normalized.setdefault("dtype", "")
     normalized.setdefault("sampling", {})
+    normalized.setdefault("evaluation", {})
     normalized.setdefault("attribution", {})
     normalized.setdefault("license_expression", "")
     normalized.setdefault("source_uri", "")
@@ -253,9 +258,9 @@ class PostgresDataCatalog:
                 """
                 INSERT INTO public.data_artifact_metadata (
                     version_id, modality, media_type, schema_json, shape, dtype,
-                    sampling_metadata, attribution, license_expression, source_uri,
-                    intended_use, limitations
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    sampling_metadata, evaluation_metadata, attribution,
+                    license_expression, source_uri, intended_use, limitations
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (version_id) DO UPDATE SET
                     modality = EXCLUDED.modality,
                     media_type = EXCLUDED.media_type,
@@ -263,6 +268,7 @@ class PostgresDataCatalog:
                     shape = EXCLUDED.shape,
                     dtype = EXCLUDED.dtype,
                     sampling_metadata = EXCLUDED.sampling_metadata,
+                    evaluation_metadata = EXCLUDED.evaluation_metadata,
                     attribution = EXCLUDED.attribution,
                     license_expression = EXCLUDED.license_expression,
                     source_uri = EXCLUDED.source_uri,
@@ -277,6 +283,7 @@ class PostgresDataCatalog:
                     normalized["shape"],
                     normalized["dtype"],
                     Jsonb(normalized["sampling"]),
+                    Jsonb(normalized["evaluation"]),
                     Jsonb(normalized["attribution"]),
                     normalized["license_expression"],
                     normalized["source_uri"],

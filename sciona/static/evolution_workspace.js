@@ -116,6 +116,32 @@
       btnPrevious.disabled = index === 0;
       btnNext.disabled = index === trace.versions.length - 1;
       guidanceStatus.textContent = version.guidance_status || "";
+      if (options.onVersionSelected) options.onVersionSelected(version);
+    }
+
+    function setVersionEvaluation(versionId, evaluation, runId) {
+      var version = trace.versions.find(function (item) {
+        return item.version_id === versionId;
+      });
+      if (!version) return;
+      version.loss = asNumber(evaluation && evaluation.loss);
+      version.evaluation = evaluation || null;
+      if (runId) version.run_id = runId;
+      (trace.transitions || []).forEach(function (item) {
+        var source = trace.versions.find(function (candidate) {
+          return candidate.version_id === item.source_version_id;
+        });
+        var target = trace.versions.find(function (candidate) {
+          return candidate.version_id === item.target_version_id;
+        });
+        item.baseline_loss = source ? asNumber(source.loss) : null;
+        item.candidate_loss = target ? asNumber(target.loss) : null;
+        item.loss_delta = item.baseline_loss != null && item.candidate_loss != null
+          ? item.candidate_loss - item.baseline_loss
+          : null;
+      });
+      renderTabs();
+      if (activeIndex >= 0) renderTransition(trace.versions[activeIndex]);
     }
 
     function loadTrace(nextTrace) {
@@ -213,6 +239,7 @@
       loadTrace: loadTrace,
       start: start,
       recordTransition: recordTransition,
+      setVersionEvaluation: setVersionEvaluation,
       getTrace: function () { return trace; },
       getActiveVersion: function () { return activeIndex >= 0 ? trace.versions[activeIndex] : null; }
     };

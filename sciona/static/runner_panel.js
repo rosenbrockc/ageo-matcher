@@ -510,6 +510,104 @@
       return errorFound ? null : values;
     }
 
+    function selectedDatasetFqn(inputs) {
+      var names = Object.keys(inputs || {});
+      for (var index = 0; index < names.length; index += 1) {
+        var value = inputs[names[index]];
+        if (value && typeof value === "object" && value.$dataset) return value.$dataset;
+      }
+      return "";
+    }
+
+    function executableVersions() {
+      var trace = options.getEvolutionTrace ? options.getEvolutionTrace() : null;
+      if (!trace || !Array.isArray(trace.versions) || trace.versions.length < 2) return [];
+      return trace.versions.filter(function (version) {
+        var nodes = version.graph && version.graph.nodes;
+        return Array.isArray(nodes) && nodes.length > 0 && nodes.every(function (node) {
+          return node.status === "atomic" && Boolean(node.matched_primitive);
+        });
+      });
+    }
+
+    function versionRunId(baseRunId, versionId) {
+      return baseRunId + "--" + String(versionId).replace(/[^a-zA-Z0-9_-]/g, "-");
+    }
+
+    function fetchJson(url, body) {
+      return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      }).then(function (res) {
+        if (!res.ok) {
+          return res.json().catch(function () { return {}; }).then(function (data) {
+            throw new Error(data.detail || "Server error " + res.status);
+          });
+        }
+        return res.json();
+      });
+    }
+
+    function finishExecution(data) {
+      runModalExecute.disabled = false;
+      runModalExecute.textContent = "Execute";
+      runModal.classList.add("hidden");
+      hasConfiguredInputs = true;
+      if (btnNewInputs) btnNewInputs.classList.remove("hidden");
+      if (data && data.trace) decorateNodeStatuses(data.trace);
+      fetchExistingRunNodes();
+      if (options.onExecutionComplete) options.onExecutionComplete(data || {});
+    }
+
+    function showExecutionError(err) {
+      runModalExecute.disabled = false;
+      runModalExecute.textContent = "Execute";
+      runModalError.textContent = err.message;
+      runModalError.style.display = "block";
+      var nodeMatch = /at node '([^']+)'/.exec(err.message);
+      if (nodeMatch && nodeMatch[1]) markErrorNode(nodeMatch[1]);
+    }
+
+    function executeEvolution(inputs, versions, datasetFqn) {
+      var baseRunId = activeRunId.split("--")[0];
+      var lastResult = null;
+      var chain = Promise.resolve();
+      versions.forEach(function (version, index) {
+        chain = chain.then(function () {
+          var runId = versionRunId(baseRunId, version.version_id);
+          runModalExecute.textContent = "Evaluating " + (index + 1) + " of " + versions.length + "...";
+          return fetchJson(
+            "/api/cdg/run?repo=" + encodeURIComponent(currentRepo) + "&run_id=" + encodeURIComponent(runId),
+            { inputs: inputs, cdg: version.graph }
+          ).then(function (runResult) {
+            lastResult = runResult;
+            return fetchJson(
+              "/api/cdg/runs/" + encodeURIComponent(runId) + "/evaluate",
+              { dataset_fqn: datasetFqn, version_id: version.version_id }
+            );
+          }).then(function (evaluation) {
+            if (options.onVersionEvaluated) {
+              options.onVersionEvaluated(version.version_id, evaluation, runId);
+            }
+          });
+        });
+      });
+      chain.then(function () {
+        var activeVersion = options.getActiveEvolutionVersion
+          ? options.getActiveEvolutionVersion()
+          : versions[versions.length - 1];
+        if (activeVersion && activeVersion.run_id) {
+          activeRunId = activeVersion.run_id;
+        } else {
+          activeRunId = versionRunId(baseRunId, versions[versions.length - 1].version_id);
+        }
+        if (activeRunSpan) activeRunSpan.textContent = activeRunId;
+        syncUrl();
+        finishExecution(lastResult);
+      }).catch(showExecutionError);
+    }
+
     // CDG Runner Endpoint Caller
     function triggerExecution(inputs, targetNodeId) {
       if (!currentRepo || !activeRunId) {
@@ -522,51 +620,18 @@
       runModalExecute.disabled = true;
       runModalExecute.textContent = "Executing...";
 
-      fetch("/api/cdg/run?repo=" + encodeURIComponent(currentRepo) + "&run_id=" + activeRunId + (targetNodeId ? "&target_node_id=" + targetNodeId : ""), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: inputs, cdg: options.getCurrentData() })
-      })
-      .then(function (res) {
-        if (res.status === 400 || res.status === 500) {
-          return res.json().then(function (data) {
-            throw new Error(data.detail || "Execution failed.");
-          });
-        }
-        if (!res.ok) throw new Error("Server error " + res.status);
-        return res.json();
-      })
-      .then(function (data) {
-        runModalExecute.disabled = false;
-        runModalExecute.textContent = "Execute";
-        runModal.classList.add("hidden");
+      var versions = targetNodeId ? [] : executableVersions();
+      var datasetFqn = selectedDatasetFqn(inputs);
+      if (versions.length && datasetFqn) {
+        executeEvolution(inputs, versions, datasetFqn);
+        return;
+      }
 
-        hasConfiguredInputs = true;
-        if (btnNewInputs) btnNewInputs.classList.remove("hidden");
-
-        // Color nodes successfully executed
-        if (data.trace) {
-          decorateNodeStatuses(data.trace);
-        }
-        
-        // Scan files to mark view buttons
-        fetchExistingRunNodes();
-        if (options.onExecutionComplete) options.onExecutionComplete(data);
-      })
-      .catch(function (err) {
-        runModalExecute.disabled = false;
-        runModalExecute.textContent = "Execute";
-        
-        // If grounding failed, mark the error node if specified
-        runModalError.textContent = err.message;
-        runModalError.style.display = "block";
-        
-        // Extract failed node from error string if possible
-        var nodeMatch = /at node '([^']+)'/.exec(err.message);
-        if (nodeMatch && nodeMatch[1]) {
-          markErrorNode(nodeMatch[1]);
-        }
-      });
+      fetchJson(
+        "/api/cdg/run?repo=" + encodeURIComponent(currentRepo) + "&run_id=" + encodeURIComponent(activeRunId) +
+          (targetNodeId ? "&target_node_id=" + encodeURIComponent(targetNodeId) : ""),
+        { inputs: inputs, cdg: options.getCurrentData() }
+      ).then(finishExecution).catch(showExecutionError);
     }
 
     // History Panel List Fetcher
@@ -718,13 +783,23 @@
         runModal.classList.add("hidden");
       },
       setRepo: function (repo) {
+        var repoChanged = currentRepo !== repo;
         currentRepo = repo;
         if (btnRunCdg) btnRunCdg.classList.remove("hidden");
         if (btnHistory) btnHistory.classList.remove("hidden");
-        initSession();
-        fetchExistingRunNodes();
+        if (repoChanged || !activeRunId) {
+          initSession();
+          fetchExistingRunNodes();
+        }
       },
       getActiveRunId: function () { return activeRunId; },
+      setActiveRunId: function (runId) {
+        if (!runId || activeRunId === runId) return;
+        activeRunId = runId;
+        if (activeRunSpan) activeRunSpan.textContent = activeRunId;
+        syncUrl();
+        fetchExistingRunNodes();
+      },
       hasOutputs: function () { return hasConfiguredInputs; },
       refreshOutputs: fetchExistingRunNodes
     };

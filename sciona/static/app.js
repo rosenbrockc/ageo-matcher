@@ -390,6 +390,17 @@
     getCurrentData: function () { return graphControls.getCurrentData(); },
     isApiAvailable: localApiAvailable,
     detailControls: detailControls,
+    getEvolutionTrace: function () {
+      return evolutionControls ? evolutionControls.getTrace() : null;
+    },
+    getActiveEvolutionVersion: function () {
+      return evolutionControls ? evolutionControls.getActiveVersion() : null;
+    },
+    onVersionEvaluated: function (versionId, evaluation, runId) {
+      if (evolutionControls) {
+        evolutionControls.setVersionEvaluation(versionId, evaluation, runId);
+      }
+    },
     onExecutionComplete: function () {
       if (guidedTourControls && guidedTourControls.getActiveIndex() === 1) {
         guidedTourControls.next();
@@ -412,6 +423,9 @@
       if (data && data.metadata && data.metadata.repo && runnerControls) {
         runnerControls.setRepo(data.metadata.repo);
       }
+    },
+    onVersionSelected: function (version) {
+      if (runnerControls && version.run_id) runnerControls.setActiveRunId(version.run_id);
     },
     onGuidance: function (version, guidance) {
       var statusText = document.getElementById("status-text");

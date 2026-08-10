@@ -6,6 +6,7 @@
     var detailTabs = document.querySelectorAll(".detail-tab");
     var tabContents = document.querySelectorAll(".tab-content");
     var selectedNodeId = null;
+    var executionRequestSerial = 0;
     var btnRunNode = document.getElementById("btn-run-node");
 
     function activateTab(target) {
@@ -485,6 +486,8 @@
     }
 
     function populateExecutionTab(nodeId) {
+      executionRequestSerial += 1;
+      var requestSerial = executionRequestSerial;
       var execEmpty = document.getElementById("execution-empty");
       var execContent = document.getElementById("execution-content");
       var inputsList = document.getElementById("exec-inputs-list");
@@ -504,6 +507,7 @@
       fetch("/api/cdg/runs/" + runId + "/nodes/" + nodeId + "/values")
         .then(function (res) { return res.json(); })
         .then(function (data) {
+          if (requestSerial !== executionRequestSerial) return;
           var hasInputs = data.inputs && Object.keys(data.inputs).length > 0;
           var hasOutputs = data.outputs && Object.keys(data.outputs).length > 0;
 
@@ -537,6 +541,7 @@
           }
         })
         .catch(function (err) {
+          if (requestSerial !== executionRequestSerial) return;
           console.error("Failed to query node execution values:", err);
           if (execEmpty) execEmpty.style.display = "block";
           if (execContent) execContent.classList.add("hidden");
@@ -647,6 +652,7 @@
     }
 
     function hide() {
+      executionRequestSerial += 1;
       if (detailPanel) {
         detailPanel.classList.remove("visible");
         var cy = options.getCy ? options.getCy() : null;

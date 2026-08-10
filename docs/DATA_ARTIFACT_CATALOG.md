@@ -18,6 +18,27 @@ a `cdg.json` change.
   "shape": [4096],
   "dtype": "float64",
   "sampling": {"frequency_hz": 256},
+  "evaluation": {
+    "schema_version": "1.0",
+    "objective": "mae",
+    "prediction_node_id": "measure",
+    "spec": {
+      "loss": "mae",
+      "prediction": {
+        "value_output": "rate",
+        "time_output": "indices",
+        "time_kind": "timestamp"
+      },
+      "reference": {
+        "value_source": "reference_rate",
+        "time_source": "reference_index"
+      }
+    },
+    "reference_data": {
+      "reference_index": [100, 200, 300],
+      "reference_rate": [60.0, 61.0, 60.0]
+    }
+  },
   "license_expression": "CC0-1.0",
   "attribution": {
     "source": "Example public source",
@@ -48,6 +69,14 @@ a `cdg.json` change.
 Assets require an exact byte count and SHA-256 digest. Compatibility kinds are
 `example`, `validated`, `benchmark`, and `incompatible`. Evidence belongs in
 Postgres with the compatibility record, not in atom source metadata.
+
+Evaluation is optional. When present, it defines the objective, the graph node
+and named outputs to score, and the reference channels. The visualizer uses
+this contract to score each executable evolution version after execution.
+Aligned-series `mse`, `rmse`, and `mae` objectives are supported. The contract
+belongs to the versioned data artifact, so adding a benchmark or reference
+source does not require an atom-provider release or discipline-specific UI
+code.
 
 ## Ingestion
 

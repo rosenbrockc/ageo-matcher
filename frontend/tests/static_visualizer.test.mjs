@@ -697,10 +697,60 @@ test("evolution workspace preserves versions and supports human rejection", () =
   assert.equal(workspace.getTrace().transitions[0].graph_diff.added_nodes[0].node_id, "validate");
   assert.equal(document.getElementById("evolution-delta").textContent, "Delta -2.000000");
 
+  workspace.setVersionEvaluation("initial-match", { loss: 3.5, metrics: { mae: 3.5 } }, "run-initial");
+  workspace.setVersionEvaluation("version-2", { loss: 1.25, metrics: { mae: 1.25 } }, "run-refined");
+  assert.equal(workspace.getTrace().versions[1].run_id, "run-refined");
+  assert.equal(workspace.getTrace().transitions[0].loss_delta, -2.25);
+  assert.equal(document.getElementById("evolution-delta").textContent, "Delta -2.250000");
+
   document.getElementById("evolution-guidance").value = "This branch amplifies noise";
   document.getElementById("btn-evolution-reject").click();
   assert.equal(workspace.getTrace().versions.length, 1);
   assert.equal(loaded.at(-1), initial);
+});
+
+test("execution panel ignores stale overlapping refreshes", async () => {
+  const document = createVisualizerDocument();
+  const pendingValues = [];
+  const { context } = createBrowserContext(document, (url) => {
+    if (url.includes("/values/") && url.endsWith("/slice")) {
+      return Promise.resolve({ ok: true, json: async () => ({ type: "scalar", data: 1 }) });
+    }
+    if (url.endsWith("/values")) {
+      return new Promise((resolve) => pendingValues.push(resolve));
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) });
+  });
+  loadScript(context, "detail_panel.js");
+  const panel = context.window.initVisualizerDetailPanel({
+    conceptFamily: { custom: "other" },
+    familyColors: { other: { bg: "#fff", border: "#777", text: "#111" } },
+    getCy() { return null; },
+    getRunId() { return "run-refined"; },
+    isApiAvailable() { return true; },
+    getCurrentData() { return sampleGraphData(); },
+    getNodeColors() { return { bg: "#fff", border: "#777", text: "#111" }; },
+  });
+  const node = sampleGraphData().nodes[0];
+
+  panel.handleNodeSelected(node);
+  panel.refreshExecutionTab();
+  assert.equal(pendingValues.length, 2);
+
+  const valuesResponse = {
+    ok: true,
+    json: async () => ({
+      inputs: { signal: { type: "ndarray", shape: [4] } },
+      outputs: { rate: { type: "ndarray", shape: [4] } },
+    }),
+  };
+  pendingValues[1](valuesResponse);
+  await flushAsync();
+  pendingValues[0](valuesResponse);
+  await flushAsync();
+
+  assert.equal(document.getElementById("exec-inputs-list").children.length, 1);
+  assert.equal(document.getElementById("exec-outputs-list").children.length, 1);
 });
 
 test("guided tour advances through workflow steps and finishes cleanly", () => {
