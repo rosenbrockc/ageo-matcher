@@ -7,7 +7,7 @@ import json
 import queue
 import time
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
@@ -23,6 +23,13 @@ from sciona.visualizer.dashboard_helpers import (
 )
 
 router = APIRouter()
+
+
+class HumanGuidanceRequest(BaseModel):
+    version_id: str
+    action: Literal["refine", "reject", "accept", "stop"]
+    note: str = ""
+    node_id: str = ""
 
 
 @router.get("/api/dashboard/runs")
@@ -72,6 +79,46 @@ async def get_dashboard_run(run_id: str) -> dict[str, Any]:
         stale_seconds=max(5, int(config.telemetry_stale_seconds)),
         now=time.time(),
     )
+
+
+@router.get("/api/dashboard/runs/{run_id}/evolution")
+async def get_run_evolution(run_id: str) -> dict[str, Any]:
+    """Return graph versions and evaluated transitions for a Principal run."""
+    run = await get_dashboard_run(run_id)
+    evolution = run.get("optimize_summary", {}).get("evolution", {})
+    if not isinstance(evolution, dict) or not evolution.get("versions"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No graph evolution snapshots found for run: {run_id}",
+        )
+    return evolution
+
+
+@router.post("/api/dashboard/runs/{run_id}/guidance")
+async def record_run_guidance(
+    run_id: str, body: HumanGuidanceRequest
+) -> dict[str, Any]:
+    """Persist a human search-direction decision in the run event stream."""
+    await get_dashboard_run(run_id)
+    from sciona.telemetry import log_event
+
+    event = log_event(
+        "human",
+        "guidance",
+        "HUMAN_GUIDANCE_RECORDED",
+        run_id=run_id,
+        node_id=body.node_id,
+        payload={
+            "version_id": body.version_id,
+            "action": body.action,
+            "note": body.note.strip(),
+        },
+    )
+    return {
+        "recorded": True,
+        "run_id": run_id,
+        "timestamp": event.timestamp,
+    }
 
 
 @router.get("/api/dashboard/latest")

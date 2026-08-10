@@ -16,6 +16,7 @@ const localVisualizerScripts = [
   "compare_mode.js",
   "isomorphism_panel.js",
   "runner_panel.js",
+  "evolution_workspace.js",
   "app.js",
 ];
 
@@ -329,6 +330,18 @@ function createVisualizerDocument() {
     "run-modal-cancel",
     "run-modal-execute",
     "btn-run-node",
+    "evolution-workspace",
+    "evolution-tabs",
+    "evolution-operation",
+    "evolution-loss",
+    "evolution-delta",
+    "evolution-diff",
+    "evolution-guidance",
+    "evolution-guidance-status",
+    "btn-evolution-previous",
+    "btn-evolution-next",
+    "btn-evolution-refine",
+    "btn-evolution-reject",
     "execution-empty",
     "execution-content",
     "exec-inputs-list",
@@ -633,6 +646,41 @@ test("graph_styles returns layouts and renders a legend", () => {
   const legendContent = document.getElementById("legend-content");
   assert.equal(legendContent.children.length > 0, true);
   assert.equal(legendContent.children[0].textContent, "Color = Concept Type Family");
+});
+
+test("evolution workspace preserves versions and supports human rejection", () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: true, json: async () => ({}) }));
+  loadScript(context, "evolution_workspace.js");
+  const loaded = [];
+  const workspace = context.window.initEvolutionWorkspace({
+    loadGraph(graph) { loaded.push(graph); },
+  });
+  const initial = sampleGraphData();
+  workspace.start(initial, { label: "Initial match", loss: 4 });
+
+  const refined = JSON.parse(JSON.stringify(initial));
+  refined.nodes.push({
+    node_id: "validate",
+    name: "Validate",
+    description: "",
+    concept_type: "custom",
+    status: "atomic",
+    matched_primitive: "provider.validate",
+    inputs: [],
+    outputs: [],
+    depth: 1,
+  });
+  workspace.recordTransition(refined, { operation: "insert_validation", label: "Refinement", loss: 2 });
+
+  assert.equal(workspace.getTrace().versions.length, 2);
+  assert.equal(workspace.getTrace().transitions[0].graph_diff.added_nodes[0].node_id, "validate");
+  assert.equal(document.getElementById("evolution-delta").textContent, "Delta -2.000000");
+
+  document.getElementById("evolution-guidance").value = "This branch amplifies noise";
+  document.getElementById("btn-evolution-reject").click();
+  assert.equal(workspace.getTrace().versions.length, 1);
+  assert.equal(loaded.at(-1), initial);
 });
 
 test("visualizer scripts bootstrap in a headless browser harness", async () => {

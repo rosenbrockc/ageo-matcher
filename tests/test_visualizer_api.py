@@ -1444,3 +1444,46 @@ class TestVisualizerAPIAdditionalEndpoints:
             assert data["updated_cdg"]["nodes"][0]["name"] == "Node 1 (Updated)"
             assert "apply_kfold_ensemble" in data["logs"]
             assert "kfold_ensemble.py" in data["diff"]
+
+
+def test_evolution_endpoint_and_human_guidance_event(client):
+    from sciona.telemetry import get_event_log, reset_telemetry_runtime, start_run
+
+    reset_telemetry_runtime()
+    run_id = start_run(
+        "optimization",
+        run_id="evolution-test",
+        metadata={
+            "optimize": {
+                "evolution": {
+                    "schema_version": "1.0",
+                    "versions": [
+                        {
+                            "version_id": "trial-1",
+                            "label": "Initial match",
+                            "graph": {"nodes": [], "edges": [], "metadata": {}},
+                        }
+                    ],
+                    "transitions": [],
+                }
+            }
+        },
+    )
+
+    response = client.get(f"/api/dashboard/runs/{run_id}/evolution")
+    assert response.status_code == 200
+    assert response.json()["versions"][0]["version_id"] == "trial-1"
+
+    response = client.post(
+        f"/api/dashboard/runs/{run_id}/guidance",
+        json={
+            "version_id": "trial-1",
+            "action": "refine",
+            "note": "Inspect the unstable intermediate before expanding.",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["recorded"] is True
+    event = get_event_log().events_for_run(run_id)[-1]
+    assert event.event_type == "HUMAN_GUIDANCE_RECORDED"
+    assert event.payload["action"] == "refine"

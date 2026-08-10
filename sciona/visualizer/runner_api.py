@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 import numpy as np
 
+from sciona.architect.handoff import CDGExport
 from sciona.visualizer.runner import CDGExecutionSession, RUNS_DIR, safe_eval_slice
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ router = APIRouter()
 
 class RunCDGRequest(BaseModel):
     inputs: Dict[str, Any]
+    cdg: CDGExport | None = None
 
 
 @router.post("/api/cdg/run")
@@ -38,7 +40,11 @@ async def run_cdg(
     session = CDGExecutionSession(driver, repo, run_id)
     
     try:
-        result = await session.execute(body.inputs, target_node_id=target_node_id)
+        result = await session.execute(
+            body.inputs,
+            target_node_id=target_node_id,
+            cdg=body.cdg,
+        )
         return result
     except ValueError as e:
         # Grounding error

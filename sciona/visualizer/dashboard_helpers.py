@@ -644,6 +644,7 @@ def _build_optimize_summary(optimize: dict[str, Any]) -> dict[str, Any]:
         },
         "best_parameter_assignments": best_params,
         "trial_rows": rows,
+        "evolution": _dict(optimize.get("evolution")),
     }
 
 
@@ -699,4 +700,3 @@ def _decorate_dashboard_run(
     out = dict(annotated)
     out.update(_extract_dashboard_summaries(annotated))
     return out
-

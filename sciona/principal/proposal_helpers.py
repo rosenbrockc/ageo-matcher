@@ -133,6 +133,7 @@ class ProposalCandidate:
             selection_disposition=self.selection_disposition,
             selection_reason=self.selection_reason,
         ).model_dump(mode="json")
+        payload["cdg_snapshot"] = self.cdg.model_dump(mode="json")
         return payload
 
 

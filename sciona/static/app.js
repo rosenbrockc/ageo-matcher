@@ -74,63 +74,120 @@
   var TUTORIAL_A_CDG = {
     nodes: [
       {
-        node_id: "ingest",
-        name: "ECG Ingestion",
-        description: "Loads the raw ECG voltage signals.",
-        concept_type: "state_init",
+        node_id: "condition",
+        name: "Condition Sampled Waveform",
+        description: "Remove drift and high-frequency noise from a sampled waveform.",
+        concept_type: "signal_filter",
         status: "atomic",
-        matched_primitive: "biosppy.signals.ecg.load",
-        inputs: [],
-        outputs: [{ name: "sig", type_desc: "np.ndarray", constraints: "time domain" }],
+        matched_primitive: "sciona.atoms.signal_processing.biosppy.ecg.bandpass_filter",
+        inputs: [
+          { name: "signal", type_desc: "np.ndarray", constraints: "one-dimensional" },
+          { name: "sampling_rate", type_desc: "float", constraints: "positive" }
+        ],
+        outputs: [{ name: "filtered", type_desc: "np.ndarray", constraints: "sample aligned" }],
         depth: 1
       },
       {
-        node_id: "fft1",
-        name: "Forward FFT",
-        description: "Transforms signal into frequency domain for filtering.",
+        node_id: "detect",
+        name: "Detect Recurring Events",
+        description: "Locate recurring waveform events using the selected detector atom.",
         concept_type: "signal_transform",
         status: "atomic",
-        matched_primitive: "fft",
-        inputs: [{ name: "sig", type_desc: "np.ndarray", constraints: "time domain" }],
-        outputs: [{ name: "spectrum", type_desc: "np.ndarray", constraints: "freq domain" }],
+        matched_primitive: "sciona.atoms.signal_processing.biosppy.ecg_detectors.hamilton_segmentation",
+        inputs: [
+          { name: "filtered", type_desc: "np.ndarray", constraints: "sample aligned" },
+          { name: "sampling_rate", type_desc: "float", constraints: "positive" }
+        ],
+        outputs: [{ name: "events", type_desc: "np.ndarray", constraints: "monotonic sample indices" }],
         depth: 1
       },
       {
-        node_id: "fft2",
-        name: "Second Forward FFT (Invalid)",
-        description: "Applies a second forward FFT, causing domain mismatch (expects time domain, gets freq domain).",
+        node_id: "measure",
+        name: "Measure Event Rate",
+        description: "Convert recurring event intervals into aligned instantaneous rates.",
         concept_type: "signal_transform",
         status: "atomic",
-        matched_primitive: "fft",
-        inputs: [{ name: "sig", type_desc: "np.ndarray", constraints: "freq domain" }],
-        outputs: [{ name: "spectrum2", type_desc: "np.ndarray", constraints: "freq domain" }],
+        matched_primitive: "sciona.atoms.signal_processing.biosppy.ecg.heart_rate_computation",
+        inputs: [
+          { name: "events", type_desc: "np.ndarray", constraints: "monotonic sample indices" },
+          { name: "sampling_rate", type_desc: "float", constraints: "positive" }
+        ],
+        outputs: [
+          { name: "indices", type_desc: "np.ndarray", constraints: "sample indices" },
+          { name: "rate", type_desc: "np.ndarray", constraints: "events per minute" }
+        ],
         depth: 1
       }
     ],
     edges: [
       {
-        source_id: "ingest",
-        target_id: "fft1",
-        output_name: "sig",
-        input_name: "sig",
+        source_id: "condition",
+        target_id: "detect",
+        output_name: "filtered",
+        input_name: "filtered",
         source_type: "np.ndarray",
         target_type: "np.ndarray"
       },
       {
-        source_id: "fft1",
-        target_id: "fft2",
-        output_name: "spectrum",
-        input_name: "sig",
+        source_id: "detect",
+        target_id: "measure",
+        output_name: "events",
+        input_name: "events",
         source_type: "np.ndarray",
         target_type: "np.ndarray"
       }
     ],
     metadata: {
-      goal: "Demonstrate GhostSim mismatch detection on ECG pipelines",
-      paradigm: "filtering",
-      repo: "biosppy/ecg_mismatch"
+      goal: "Infer recurring event cadence from a sampled waveform",
+      paradigm: "signal_detect_measure",
+      repo: "showcase/public-waveform-rate",
+      dataset_id: "physionet-mitdb-100",
+      catalog_artifact: "cdg.sciona_atoms_signal.ecg_heart_rate_biosppy"
     }
   };
+
+  function buildTutorialAEvolution() {
+    var initial = JSON.parse(JSON.stringify(TUTORIAL_A_CDG));
+    initial.nodes = initial.nodes.filter(function (node) { return node.node_id !== "condition"; });
+    initial.nodes.forEach(function (node) { node.matched_primitive = ""; });
+    initial.nodes.find(function (node) { return node.node_id === "detect"; }).inputs[0].name = "signal";
+    initial.edges = [{
+      source_id: "detect", target_id: "measure", output_name: "events", input_name: "events",
+      source_type: "np.ndarray", target_type: "np.ndarray"
+    }];
+    initial.metadata.catalog_artifact = "cdg.skeleton.signal_detect_measure";
+
+    var refined = JSON.parse(JSON.stringify(TUTORIAL_A_CDG));
+    refined.nodes.find(function (node) { return node.node_id === "measure"; }).matched_primitive =
+      "sciona.atoms.signal_processing.biosppy.ecg.heart_rate_computation_median_smoothed";
+    refined.nodes.find(function (node) { return node.node_id === "measure"; }).name =
+      "Robust Event Rate";
+
+    return {
+      schema_version: "1.0",
+      goal: TUTORIAL_A_CDG.metadata.goal,
+      objective: "reference accuracy",
+      versions: [
+        { version_id: "ecg-initial", label: "Initial match", phase: "initial_match", loss: null, graph: initial },
+        { version_id: "ecg-expanded", label: "Principal expansion", phase: "expansion", loss: null, graph: TUTORIAL_A_CDG },
+        { version_id: "ecg-refined", label: "Robust refinement", phase: "refinement", loss: null, graph: refined }
+      ],
+      transitions: [
+        {
+          transition_id: "ecg-initial--ecg-expanded", source_version_id: "ecg-initial", target_version_id: "ecg-expanded",
+          operation: "catalog_solution_expansion", status: "accepted", baseline_loss: null, candidate_loss: null,
+          loss_delta: null, rules_applied: ["insert_conditioning_before_detection"],
+          graph_diff: { added_nodes: [TUTORIAL_A_CDG.nodes[0]], removed_nodes: [], changed_nodes: TUTORIAL_A_CDG.nodes.slice(1), added_edges: [], removed_edges: [] }
+        },
+        {
+          transition_id: "ecg-expanded--ecg-refined", source_version_id: "ecg-expanded", target_version_id: "ecg-refined",
+          operation: "robust_rate_refinement", status: "accepted", baseline_loss: null, candidate_loss: null,
+          loss_delta: null, rules_applied: ["replace_rate_with_robust_variant"],
+          graph_diff: { added_nodes: [], removed_nodes: [], changed_nodes: [{ node_id: "measure" }], added_edges: [], removed_edges: [] }
+        }
+      ]
+    };
+  }
 
   var TUTORIAL_B_CDG = {
     nodes: [
@@ -279,6 +336,8 @@
   var detailControls = null;
   var isoControls = null;
   var runnerControls = null;
+  var evolutionControls = null;
+  var activeEvolutionRunId = "";
 
   detailControls = window.initVisualizerDetailPanel({
     conceptFamily: CONCEPT_FAMILY,
@@ -290,7 +349,14 @@
     getRunId: function () { return runnerControls ? runnerControls.getActiveRunId() : null; },
     isApiAvailable: function () { return browserControls && browserControls.isApiAvailable(); },
     getCurrentData: function () { return graphControls ? graphControls.getCurrentData() : null; },
-    validateAndLoad: function (data) { if (graphControls) graphControls.validateAndLoad(data); }
+    validateAndLoad: function (data) { if (graphControls) graphControls.validateAndLoad(data); },
+    onGraphRewritten: function (data, transition) {
+      if (evolutionControls) {
+        evolutionControls.recordTransition(data, transition);
+      } else if (graphControls) {
+        graphControls.validateAndLoad(data);
+      }
+    }
   });
 
   var graphControls = window.initVisualizerGraph({
@@ -328,6 +394,34 @@
       runnerControls.setRepo(data.metadata.repo);
     }
   };
+
+  evolutionControls = window.initEvolutionWorkspace({
+    loadGraph: function (data) {
+      originalValidateAndLoad(data);
+      if (data && data.metadata && data.metadata.repo && runnerControls) {
+        runnerControls.setRepo(data.metadata.repo);
+      }
+    },
+    onGuidance: function (version, guidance) {
+      var statusText = document.getElementById("status-text");
+      if (statusText) {
+        statusText.textContent = guidance.action === "reject"
+          ? "Branch reset to " + version.label
+          : "Guidance recorded on " + version.label;
+      }
+      if (activeEvolutionRunId) {
+        fetch("/api/dashboard/runs/" + encodeURIComponent(activeEvolutionRunId) + "/guidance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            version_id: version.version_id,
+            action: guidance.action,
+            note: guidance.note || ""
+          })
+        }).catch(function () {});
+      }
+    }
+  });
 
   var browserControls = window.initVisualizerBrowser({
     conceptFamily: CONCEPT_FAMILY,
@@ -434,7 +528,8 @@
 
   if (btnLoadTutA) {
     btnLoadTutA.addEventListener("click", function () {
-      graphControls.validateAndLoad(TUTORIAL_A_CDG);
+      activeEvolutionRunId = "";
+      evolutionControls.loadTrace(buildTutorialAEvolution());
       if (tutorialsModal) tutorialsModal.classList.add("hidden");
     });
   }
@@ -484,8 +579,8 @@
   if (queryRepo) {
     var statusText = document.getElementById("status-text");
     if (statusText) statusText.textContent = "Loading " + queryRepo + "...";
-    if (queryRepo === "biosppy/ecg_mismatch") {
-      graphControls.validateAndLoad(TUTORIAL_A_CDG);
+    if (queryRepo === "showcase/public-waveform-rate" || queryRepo === "biosppy/ecg_mismatch") {
+      evolutionControls.loadTrace(buildTutorialAEvolution());
     } else if (queryRepo === "sklearn/tabular_ml") {
       graphControls.validateAndLoad(TUTORIAL_B_CDG);
     } else if (queryRepo === "umap/scientific_computing") {
@@ -507,5 +602,21 @@
     }
   } else {
     graphControls.tryLoadDefault();
+  }
+
+  var evolutionRunMatch = RegExp("[?&]evolution_run=([^&]*)").exec(search);
+  if (evolutionRunMatch && evolutionControls) {
+    var evolutionRunId = decodeURIComponent(evolutionRunMatch[1].replace(/\+/g, " "));
+    activeEvolutionRunId = evolutionRunId;
+    fetch("/api/dashboard/runs/" + encodeURIComponent(evolutionRunId) + "/evolution")
+      .then(function (res) {
+        if (!res.ok) throw new Error("Evolution trace not found");
+        return res.json();
+      })
+      .then(function (trace) { evolutionControls.loadTrace(trace); })
+      .catch(function (err) {
+        var statusText = document.getElementById("status-text");
+        if (statusText) statusText.textContent = "Error: " + err.message;
+      });
   }
 })();

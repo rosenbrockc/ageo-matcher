@@ -25,6 +25,7 @@
   const coverageTable = document.getElementById("coverage-table");
   const errorSummary = document.getElementById("error-summary");
   const errorList = document.getElementById("error-list");
+  const btnOpenEvolution = document.getElementById("btn-open-evolution");
 
   // Deep link: ?run=abc123 selects a run on load
   const _urlParams = new URLSearchParams(window.location.search);
@@ -330,6 +331,10 @@
     const topMerges = (catalog.top_merges || []).map((row) => `${row.candidate}->${row.incumbent}@${Number(row.similarity || 0).toFixed(2)}`).join(", ");
     const shared = run.shared_context_summary || {};
     const optimize = run.optimize_summary || {};
+    const evolutionVersions = ((optimize.evolution || {}).versions || []);
+    if (btnOpenEvolution) {
+      btnOpenEvolution.classList.toggle("is-hidden", evolutionVersions.length === 0);
+    }
     const metrics = [
       ["pipeline", run.pipeline || "--"],
       ["label", run.label || "--"],
@@ -519,6 +524,13 @@
       (stale ? `\n\nstale_stages:\n${stale}` : "");
   }
 
+  if (btnOpenEvolution) {
+    btnOpenEvolution.addEventListener("click", () => {
+      if (!selectedRunId) return;
+      window.open(`/?evolution_run=${encodeURIComponent(selectedRunId)}`, "_blank");
+    });
+  }
+
   function setStages(run) {
     const rows = Object.entries(run.stages || {});
     rows.sort((a, b) => Number((a[1] || {}).started_at || 0) - Number((b[1] || {}).started_at || 0));
@@ -592,6 +604,7 @@
 
   async function loadTimeline(append) {
     if (!selectedRunId) {
+      btnOpenEvolution.classList.add("is-hidden");
       timelineList.innerHTML = '<div class="run-meta" style="padding:10px;">Select a run.</div>';
       return;
     }
@@ -776,6 +789,7 @@
   // ─── Load selected run ───
   async function loadSelected() {
     if (!selectedRunId) {
+      if (btnOpenEvolution) btnOpenEvolution.classList.add("is-hidden");
       summary.innerHTML = "";
       metaBlock.textContent = "Select a run to inspect details.";
       stagesTable.innerHTML = "";

@@ -64,6 +64,12 @@ select, button {
   cursor: pointer;
 }
 
+.overview-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
 input[type="text"] {
   border: 1px solid var(--border);
   background: var(--panel-soft);

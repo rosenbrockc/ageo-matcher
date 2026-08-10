@@ -424,12 +424,22 @@ class CDGExecutionSession:
         self.run_id = run_id
         self.run_dir = RUNS_DIR / run_id
         
-    async def execute(self, user_inputs: Dict[str, Any], target_node_id: Optional[str] = None) -> Dict[str, Any]:
+    async def execute(
+        self,
+        user_inputs: Dict[str, Any],
+        target_node_id: Optional[str] = None,
+        cdg: Any | None = None,
+    ) -> Dict[str, Any]:
         """Runs the CDG execution pipeline, caching intermediate states."""
         self.run_dir.mkdir(parents=True, exist_ok=True)
         
         # 1. Load CDG
-        nodes, edges, metadata = await load_cdg_from_memgraph(self.driver, self.repo)
+        if cdg is None:
+            nodes, edges, metadata = await load_cdg_from_memgraph(self.driver, self.repo)
+        else:
+            nodes = list(cdg.nodes)
+            edges = list(cdg.edges)
+            metadata = dict(cdg.metadata)
         
         # Save run metadata
         meta_file = self.run_dir / "run_metadata.json"
@@ -493,7 +503,10 @@ class CDGExecutionSession:
             impl = REGISTRY[primitive_name]["impl"]
             
             # Check caching: can we reuse computed outputs?
-            cached_outputs = load_cached_outputs(self.run_dir, node_id)
+            # A supplied graph is an editable evolution snapshot. Node IDs may be
+            # stable while implementations or wiring change between versions, so
+            # the run-level cache is not valid for these executions.
+            cached_outputs = None if cdg is not None else load_cached_outputs(self.run_dir, node_id)
             if cached_outputs is not None:
                 logger.info(f"Reusing cached outputs for node: {node.name}")
                 for name, val in cached_outputs.items():

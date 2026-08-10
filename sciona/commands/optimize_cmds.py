@@ -63,6 +63,7 @@ def _summarize_optimize_history(
     benchmark_path: str,
     max_trials: int,
     output_root: Path,
+    goal: str = "",
 ) -> dict[str, Any]:
     """Build dashboard-friendly metadata for a Principal optimisation run."""
     trial_rows: list[dict[str, Any]] = []
@@ -298,6 +299,13 @@ def _summarize_optimize_history(
             else {}
         )
 
+    from sciona.evolution import build_evolution_trace
+
+    evolution_trace = build_evolution_trace(
+        history,
+        goal=goal,
+        objective=objective,
+    )
     return {
         "objective": objective,
         "execution_metric": execution_metric,
@@ -363,6 +371,7 @@ def _summarize_optimize_history(
         "best_structure": best_structure,
         "trial_history_path": str(output_root / "trial_history.json"),
         "trial_rows": trial_rows,
+        "evolution": evolution_trace,
     }
 
 async def _match_results_for_optimize(
@@ -840,6 +849,7 @@ async def _cmd_optimize(args: argparse.Namespace) -> None:
                 benchmark_path=str(args.benchmark),
                 max_trials=int(args.trials),
                 output_root=output_root,
+                goal=str(args.goal),
             ),
             "heuristic_outcome_memory": {
                 "memory_count": heuristic_memory_summary.get("memory_count", 0),

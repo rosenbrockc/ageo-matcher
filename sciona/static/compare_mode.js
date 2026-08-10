@@ -87,6 +87,7 @@
             textColor: colors.text,
             shape: shape,
             size: 40,
+            labelWidth: "70px",
             conceptType: conceptType
           }
         });

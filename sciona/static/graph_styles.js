@@ -11,7 +11,7 @@
             "text-valign": "center",
             "text-halign": "center",
             "text-wrap": "wrap",
-            "text-max-width": "70px",
+            "text-max-width": "data(labelWidth)",
             "font-size": "10px",
             "color": "data(textColor)",
             "background-color": "data(bgColor)",

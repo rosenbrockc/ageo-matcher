@@ -481,7 +481,7 @@
       fetch("/api/cdg/run?repo=" + encodeURIComponent(currentRepo) + "&run_id=" + activeRunId + (targetNodeId ? "&target_node_id=" + targetNodeId : ""), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: inputs })
+        body: JSON.stringify({ inputs: inputs, cdg: options.getCurrentData() })
       })
       .then(function (res) {
         if (res.status === 400 || res.status === 500) {

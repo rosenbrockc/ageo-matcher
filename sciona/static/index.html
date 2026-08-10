@@ -18,6 +18,26 @@
     <span class="meta-chip" id="meta-run-id" style="margin-left: auto;">Run ID: <span id="active-run-id">—</span></span>
   </div>
 
+  <section id="evolution-workspace" class="hidden" aria-label="Graph evolution">
+    <div class="evolution-nav">
+      <button id="btn-evolution-previous" class="evolution-icon-btn" type="button" title="Previous graph version" aria-label="Previous graph version">&#8249;</button>
+      <div id="evolution-tabs" role="tablist" aria-label="Graph versions"></div>
+      <button id="btn-evolution-next" class="evolution-icon-btn" type="button" title="Next graph version" aria-label="Next graph version">&#8250;</button>
+    </div>
+    <div class="evolution-transition">
+      <strong id="evolution-operation">Catalog match</strong>
+      <span id="evolution-loss" class="evolution-metric">Loss not evaluated</span>
+      <span id="evolution-delta" class="evolution-metric">Baseline</span>
+      <span id="evolution-diff" class="evolution-diff">Initial graph</span>
+      <div class="evolution-guidance-controls">
+        <input id="evolution-guidance" type="text" placeholder="Guide the next refinement..." aria-label="Human guidance for the next refinement">
+        <button id="btn-evolution-refine" type="button">Refine here</button>
+        <button id="btn-evolution-reject" type="button" class="is-danger">Reject direction</button>
+      </div>
+      <span id="evolution-guidance-status" role="status"></span>
+    </div>
+  </section>
+
   <!-- Toolbar -->
   <div id="toolbar">
     <button id="btn-browse">Browse CDGs</button>
@@ -280,20 +300,20 @@
         <!-- Walkthrough A -->
         <div id="tut-a" class="tutorial-pane">
           <h4>Walkthrough A: ECG Signal Processing Pipeline</h4>
-          <p>This walkthrough demonstrates automated design and verification of cardiac signal processing filters using biosppy-compatible atoms.</p>
+          <p>This walkthrough follows a public sampled-waveform task from a generic rate-detection skeleton through catalog grounding and robust refinement.</p>
           <div style="background: #f5f5f5; padding: 10px; border-left: 4px solid #1976d2; margin: 10px 0;">
-            <strong>Step 1: Signal Ingestion</strong><br>
-            A high-frequency ECG signal is loaded. Notice the raw signal contains significant muscle tremor and baseline drift.
+            <strong>Initial match</strong><br>
+            The catalog returns a discipline-neutral detect-and-measure skeleton before committing to a specialized implementation.
           </div>
           <div style="background: #f5f5f5; padding: 10px; border-left: 4px solid #1976d2; margin: 10px 0;">
-            <strong>Step 2: Bandpass Filtering</strong><br>
-            A Butterworth bandpass filter (0.5 to 40 Hz) is applied. If the input domain does not match (e.g. frequency domain fed into time domain), <strong>GhostSim</strong> raises a mismatch.
+            <strong>Principal expansion</strong><br>
+            Catalog evidence grounds conditioning, recurring-event detection, and rate measurement with provider atoms.
           </div>
           <div style="background: #f5f5f5; padding: 10px; border-left: 4px solid #1976d2; margin: 10px 0;">
-            <strong>Step 3: R-Peak Segmentation</strong><br>
-            Hamilton segmentation detects peak intervals. Click <strong>Run Node</strong> to verify inputs/outputs incrementally.
+            <strong>Robust refinement</strong><br>
+            Runtime evidence can replace the rate stage with a robust variant while preserving the graph contract.
           </div>
-          <button class="log-btn" id="btn-load-tutorial-a" style="margin-top: 10px; padding: 6px 12px; background: #1976d2; color: white; border: none; border-radius: 3px; cursor: pointer;">Load ECG CDG Template</button>
+          <button class="log-btn" id="btn-load-tutorial-a" style="margin-top: 10px; padding: 6px 12px; background: #1976d2; color: white; border: none; border-radius: 3px; cursor: pointer;">Open ECG Evolution</button>
         </div>
 
         <!-- Walkthrough B -->
@@ -370,6 +390,7 @@
   <script src="compare_mode.js"></script>
   <script src="isomorphism_panel.js"></script>
   <script src="runner_panel.js"></script>
+  <script src="evolution_workspace.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

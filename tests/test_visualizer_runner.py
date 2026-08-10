@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -246,6 +247,48 @@ async def test_cdg_execution_session(temp_run_dir):
             meta = json.load(f)
             assert meta["status"] == "completed"
             assert meta["repo"] == "test_repo"
+
+
+@pytest.mark.anyio
+async def test_cdg_execution_session_uses_supplied_graph_snapshot(temp_run_dir):
+    call_count = 0
+
+    def double(x: int) -> int:
+        nonlocal call_count
+        call_count += 1
+        return x * 2
+
+    REGISTRY["double"] = {"impl": double, "witness": lambda x: x}
+    node = AlgorithmicNode(
+        node_id="double",
+        name="Double",
+        description="",
+        concept_type="custom",
+        status=NodeStatus.ATOMIC,
+        depth=0,
+        type_signature="",
+        inputs=[{"name": "x", "type_desc": "int", "constraints": ""}],
+        outputs=[{"name": "result", "type_desc": "int", "constraints": ""}],
+        children=[],
+        matched_primitive="double",
+    )
+    graph = SimpleNamespace(nodes=[node], edges=[], metadata={"goal": "double"})
+    session = CDGExecutionSession(driver=None, repo="snapshot", run_id="snapshot-run")
+
+    with patch(
+        "sciona.visualizer.runner.load_cdg_from_memgraph", new_callable=AsyncMock
+    ) as load_graph:
+        result = await session.execute({"x": 6}, cdg=graph)
+        repeated = await session.execute({"x": 7}, cdg=graph)
+
+    load_graph.assert_not_awaited()
+    assert call_count == 2
+    assert result["status"] == "completed"
+    assert repeated["trace"][0]["cached"] is False
+    output = json.loads(
+        (temp_run_dir / "snapshot-run" / "double" / "out_result.json").read_text()
+    )
+    assert output["value"] == 14
 
 
 @pytest.mark.anyio

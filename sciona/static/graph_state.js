@@ -232,11 +232,14 @@
         var colors = config.getNodeColors(conceptType);
         var shape = config.statusShapes[status] || "ellipse";
         var childCount = (node.children && node.children.length) || 0;
-        var size = Math.min(80, 40 + childCount * 8);
         var visible = isNodeVisible(node.node_id);
         var label = isDecomposed(node.node_id)
           ? node.name + " [" + childrenOf[node.node_id].length + "]"
           : node.name;
+        var size = Math.min(
+          120,
+          Math.max(64, 52 + Math.ceil(String(label || "").length / 10) * 10 + childCount * 4)
+        );
 
         elements.push({
           group: "nodes",
@@ -248,7 +251,8 @@
             borderColor: colors.border,
             textColor: colors.text,
             shape: shape,
-            size: size
+            size: size,
+            labelWidth: Math.max(52, size - 14) + "px"
           },
           classes: visible ? "" : "collapsed-hidden"
         });

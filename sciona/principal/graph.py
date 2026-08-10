@@ -330,7 +330,23 @@ async def evaluate_run(state: PrincipalState, config: RunnableConfig) -> dict:
             "runtime_evidence": summarize_runtime_heuristic_evidence(
                 getattr(state.benchmark, "runtime_artifacts", {}) or {}
             ),
+            "cdg_snapshot": state.cdg.model_dump(mode="json") if state.cdg else {},
         }
+    )
+
+    from sciona.telemetry import log_event
+
+    log_event(
+        "principal",
+        "evaluate",
+        "PRINCIPAL_TRIAL_EVALUATED",
+        payload={
+            "trial": state.current_trial,
+            "loss": float(benchmark.global_loss),
+            "best_loss": float(state.best_loss),
+            "structure": structure,
+            "graph": state.cdg.model_dump(mode="json") if state.cdg else {},
+        },
     )
 
     # Track best params
@@ -670,6 +686,22 @@ async def select_proposal(state: PrincipalState, config: RunnableConfig) -> dict
         skip_reason="",
         hard_reject_rule_ids=[],
     ).model_dump(mode="json")
+
+    from sciona.telemetry import log_event
+
+    log_event(
+        "principal",
+        "refinement",
+        "PRINCIPAL_PROPOSALS_EVALUATED",
+        node_id=state.bottleneck_node_id or "",
+        payload={
+            "trial": state.current_trial,
+            "baseline_loss": baseline_loss,
+            "selected": selected.label if selected is not None else "",
+            "selected_reason": selected_reason,
+            "candidates": proposal_rows,
+        },
+    )
 
     if state.trial_history:
         latest = dict(state.trial_history[-1])

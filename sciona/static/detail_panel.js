@@ -207,7 +207,13 @@
         return res.json();
       })
       .then(function (data) {
-        if (options.validateAndLoad) {
+        if (options.onGraphRewritten) {
+          options.onGraphRewritten(data.updated_cdg, {
+            operation: ruleName,
+            label: ruleName.replace(/_/g, " "),
+            rules_applied: [ruleName]
+          });
+        } else if (options.validateAndLoad) {
           options.validateAndLoad(data.updated_cdg);
         }
 
