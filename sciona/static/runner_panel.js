@@ -92,7 +92,7 @@
 
     // Existing completed nodes query
     function fetchExistingRunNodes() {
-      if (!options.isApiAvailable() || !activeRunId) return;
+      if (!activeRunId) return;
       fetch("/api/cdg/runs/" + activeRunId + "/existing")
         .then(function (res) { return res.json(); })
         .then(function (data) {
@@ -132,6 +132,7 @@
       // Only evaluate leaf nodes for parameters
       var leafNodes = nodes.filter(function (n) { return n.status === "atomic"; });
       var rootInputs = [];
+      var rootInputsByName = {};
 
       leafNodes.forEach(function (node) {
         var inputs = node.inputs || [];
@@ -142,15 +143,22 @@
           });
 
           if (!edgeFound) {
-            // This is a root input parameter!
-            rootInputs.push({
+            if (rootInputsByName[inp.name]) {
+              rootInputsByName[inp.name].requiredBy.push(node.name);
+              rootInputsByName[inp.name].nodeName = rootInputsByName[inp.name].requiredBy.join(", ");
+              return;
+            }
+            var rootInput = {
               nodeId: node.node_id,
               nodeName: node.name,
+              requiredBy: [node.name],
               matched_primitive: node.matched_primitive || "",
               name: inp.name,
               type_desc: inp.type_desc,
               constraints: inp.constraints
-            });
+            };
+            rootInputsByName[inp.name] = rootInput;
+            rootInputs.push(rootInput);
           }
         });
       });
@@ -167,6 +175,26 @@
       if (inputs.length === 0) {
         runModalInputs.innerHTML = '<div class="lineage-hint">This CDG has no root input parameters. Ready to execute!</div>';
         return;
+      }
+
+      function applyCatalogDefaults(dataset) {
+        var schemaDefaults = dataset && dataset.schema_json && dataset.schema_json.input_defaults;
+        var defaults = Object.assign({}, schemaDefaults || {}, (dataset && dataset.input_defaults) || {});
+        var frequency = dataset && dataset.sampling_metadata && dataset.sampling_metadata.frequency_hz;
+        if (frequency != null) {
+          ["sampling_rate", "sample_rate", "frequency_hz", "fs"].forEach(function (name) {
+            if (defaults[name] == null) defaults[name] = frequency;
+          });
+        }
+        Object.keys(defaults).forEach(function (name) {
+          var targetGroup = runModalInputs.querySelector('[data-input-name="' + name + '"]');
+          if (!targetGroup) return;
+          var targetSelect = targetGroup.querySelector(".run-input-select");
+          var targetInput = targetGroup.querySelector("input.run-input-field");
+          if (targetSelect && targetSelect.value === "constant" && targetInput && !targetInput.value) {
+            targetInput.value = String(defaults[name]);
+          }
+        });
       }
 
       inputs.forEach(function (inp) {
@@ -299,6 +327,7 @@
                 '<div><strong>Description:</strong> ' + found.description + '</div>' +
                 (found.attribution && found.attribution.source ? '<div><strong>Source:</strong> <a href="' + (found.attribution.url || "#") + '" target="_blank" style="color: #2563eb; text-decoration: none;">' + found.attribution.source + '</a></div>' : '') +
               '</div>';
+            applyCatalogDefaults(found);
           } else {
             curatedPreview.innerHTML = "";
           }
@@ -436,6 +465,11 @@
         var val = "";
         if (type === "constant") {
           val = group.querySelector("input").value;
+          if (!String(val).trim()) {
+            runModalError.textContent = "A value is required for input '" + name + "'.";
+            runModalError.style.display = "block";
+            errorFound = true;
+          }
         } else if (type === "json") {
           var rawJson = group.querySelector("textarea").value.trim();
           try {
@@ -447,6 +481,11 @@
           }
         } else if (type === "path") {
           val = group.querySelector("input").value;
+          if (!String(val).trim()) {
+            runModalError.textContent = "A path is required for input '" + name + "'.";
+            runModalError.style.display = "block";
+            errorFound = true;
+          }
         } else if (type === "upload") {
           val = group.querySelector("input").value; // filled post-upload
           if (!val) {
@@ -467,12 +506,17 @@
         values[name] = val;
       });
 
+      if (errorFound) runModalError.scrollIntoView({ behavior: "smooth", block: "nearest" });
       return errorFound ? null : values;
     }
 
     // CDG Runner Endpoint Caller
     function triggerExecution(inputs, targetNodeId) {
-      if (!options.isApiAvailable() || !currentRepo || !activeRunId) return;
+      if (!currentRepo || !activeRunId) {
+        runModalError.textContent = "This graph does not have an executable repository or run session.";
+        runModalError.style.display = "block";
+        return;
+      }
 
       runModalError.style.display = "none";
       runModalExecute.disabled = true;
@@ -507,6 +551,7 @@
         
         // Scan files to mark view buttons
         fetchExistingRunNodes();
+        if (options.onExecutionComplete) options.onExecutionComplete(data);
       })
       .catch(function (err) {
         runModalExecute.disabled = false;
@@ -526,7 +571,7 @@
 
     // History Panel List Fetcher
     function fetchRunHistory() {
-      if (!options.isApiAvailable() || !currentRepo) return;
+      if (!currentRepo) return;
       
       historyList.innerHTML = '<div class="lineage-hint">Loading history...</div>';
       
@@ -665,12 +710,17 @@
     }
 
     return {
+      openInputDialog: function () {
+        buildInputForm();
+        runModal.classList.remove("hidden");
+      },
+      closeInputDialog: function () {
+        runModal.classList.add("hidden");
+      },
       setRepo: function (repo) {
         currentRepo = repo;
-        if (options.isApiAvailable()) {
-          if (btnRunCdg) btnRunCdg.classList.remove("hidden");
-          if (btnHistory) btnHistory.classList.remove("hidden");
-        }
+        if (btnRunCdg) btnRunCdg.classList.remove("hidden");
+        if (btnHistory) btnHistory.classList.remove("hidden");
         initSession();
         fetchExistingRunNodes();
       },

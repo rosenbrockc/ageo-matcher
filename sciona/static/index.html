@@ -42,6 +42,7 @@
   <div id="toolbar">
     <button id="btn-browse">Browse CDGs</button>
     <button id="btn-tutorials">Showcase Tutorials</button>
+    <button id="btn-guided-tour">Guided Tour</button>
     <button id="btn-open">Open File...</button>
     <button id="btn-run-cdg" class="hidden">Run CDG</button>
     <button id="btn-new-inputs" class="hidden">New Inputs</button>
@@ -60,6 +61,22 @@
     <button id="btn-compare">Compare</button>
     <button id="btn-dashboard">Telemetry</button>
     <span id="status-text">No data loaded</span>
+  </div>
+
+  <div id="guided-tour" class="guided-tour-layer hidden" aria-live="polite">
+    <div id="guided-tour-spotlight" class="guided-tour-spotlight" aria-hidden="true"></div>
+    <section id="guided-tour-dialog" class="guided-tour-dialog" role="dialog" aria-labelledby="guided-tour-title">
+      <div class="guided-tour-heading">
+        <span id="guided-tour-progress"></span>
+        <button id="guided-tour-close" type="button" title="Close guided tour" aria-label="Close guided tour">&times;</button>
+      </div>
+      <h2 id="guided-tour-title"></h2>
+      <p id="guided-tour-body"></p>
+      <div class="guided-tour-actions">
+        <button id="guided-tour-previous" type="button">Back</button>
+        <button id="guided-tour-next" type="button" class="is-primary">Next</button>
+      </div>
+    </section>
   </div>
 
   <!-- CDG Browser panel -->
@@ -391,6 +408,7 @@
   <script src="isomorphism_panel.js"></script>
   <script src="runner_panel.js"></script>
   <script src="evolution_workspace.js"></script>
+  <script src="guided_tour.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

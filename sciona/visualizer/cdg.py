@@ -33,9 +33,15 @@ async def list_cdgs(
     RETURN repo, node_count, concept_types, statuses
     ORDER BY repo
     """
-    async with driver.session() as session:
-        result = await session.run(cypher, **params)
-        records = [r async for r in result]
+    try:
+        async with driver.session() as session:
+            result = await session.run(cypher, **params)
+            records = [r async for r in result]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="The optional Memgraph CDG browser is unavailable.",
+        ) from exc
     rows = []
     for rec in records:
         concept_types = [ct for ct in rec["concept_types"] if ct]
@@ -454,4 +460,3 @@ async def apply_fix(body: ApplyFixRequest) -> dict[str, Any]:
         "logs": logs,
         "diff": diff,
     }
-

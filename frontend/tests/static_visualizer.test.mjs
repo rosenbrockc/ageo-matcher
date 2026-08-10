@@ -17,6 +17,7 @@ const localVisualizerScripts = [
   "isomorphism_panel.js",
   "runner_panel.js",
   "evolution_workspace.js",
+  "guided_tour.js",
   "app.js",
 ];
 
@@ -218,6 +219,7 @@ class FakeElement {
 
 class FakeDocument {
   constructor() {
+    this.listeners = {};
     this.documentElement = new FakeElement("html");
     this.body = new FakeElement("body");
     this.documentElement.appendChild(this.body);
@@ -237,6 +239,11 @@ class FakeDocument {
 
   querySelectorAll(selector) {
     return querySelectorAllFrom(this.documentElement, selector);
+  }
+
+  addEventListener(type, handler) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(handler);
   }
 }
 
@@ -347,6 +354,7 @@ function createVisualizerDocument() {
     "exec-inputs-list",
     "exec-outputs-list",
     "btn-tutorials",
+    "btn-guided-tour",
     "tutorials-modal",
     "btn-tutorials-close",
     "quick-fixes-list",
@@ -358,6 +366,15 @@ function createVisualizerDocument() {
     "btn-load-tutorial-a",
     "btn-load-tutorial-b",
     "btn-load-tutorial-c",
+    "guided-tour",
+    "guided-tour-spotlight",
+    "guided-tour-dialog",
+    "guided-tour-progress",
+    "guided-tour-title",
+    "guided-tour-body",
+    "guided-tour-previous",
+    "guided-tour-next",
+    "guided-tour-close",
   ].forEach((id) => addElement(document, "div", id, body));
 
   const layoutSelect = document.getElementById("layout-select");
@@ -504,6 +521,9 @@ function createBrowserContext(document, fetchImpl) {
   context.window = {
     ...context,
     document,
+    innerWidth: 1280,
+    innerHeight: 800,
+    addEventListener() {},
     open() {},
   };
   context.window.window = context.window;
@@ -683,6 +703,35 @@ test("evolution workspace preserves versions and supports human rejection", () =
   assert.equal(loaded.at(-1), initial);
 });
 
+test("guided tour advances through workflow steps and finishes cleanly", () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: false }));
+  loadScript(context, "guided_tour.js");
+
+  const prepared = [];
+  const tour = context.window.initGuidedTour({
+    steps: [
+      { id: "objective", target: "#metadata-bar", title: "Objective", description: "Read the goal." },
+      { id: "graph", target: "#cy-container", title: "Graph", description: "Inspect the graph." },
+    ],
+    prepareStep(step) { prepared.push(step.id); },
+  });
+
+  tour.start();
+  assert.equal(tour.getActiveIndex(), 0);
+  assert.equal(document.getElementById("guided-tour-title").textContent, "Objective");
+  assert.equal(document.getElementById("guided-tour").classList.contains("hidden"), false);
+
+  document.getElementById("guided-tour-next").click();
+  assert.equal(tour.getActiveIndex(), 1);
+  assert.equal(document.getElementById("guided-tour-title").textContent, "Graph");
+  assert.deepEqual(prepared, ["objective", "graph"]);
+
+  document.getElementById("guided-tour-next").click();
+  assert.equal(tour.getActiveIndex(), -1);
+  assert.equal(document.getElementById("guided-tour").classList.contains("hidden"), true);
+});
+
 test("visualizer scripts bootstrap in a headless browser harness", async () => {
   const document = createVisualizerDocument();
   const { context, fetchCalls, animationFrames } = createBrowserContext(document, (url) => {
@@ -711,8 +760,8 @@ test("visualizer scripts bootstrap in a headless browser harness", async () => {
   assert.equal(typeof context.window.initVisualizerGraph, "function");
   assert.equal(typeof context.window.initVisualizerBrowser, "function");
   assert.equal(typeof context.window.initVisualizerDetailPanel, "function");
-  assert.equal(fetchCalls.some((call) => call.url === "/api/cdgs"), true);
+  assert.equal(fetchCalls.some((call) => call.url === "/api/cdgs"), false);
   assert.equal(fetchCalls.some((call) => call.url === "default_cdg.json"), true);
   assert.equal(animationFrames.length > 0, true);
-  assert.match(document.getElementById("browser-list").innerHTML, /No CDGs found/);
+  assert.equal(document.getElementById("browser-list").innerHTML, "");
 });

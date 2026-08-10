@@ -97,6 +97,16 @@ class TestListCDGs:
         assert resp.status_code == 200
         assert resp.json() == []
 
+    def test_unavailable_memgraph_returns_controlled_error(self, client, mock_driver):
+        session = _FakeSession([])
+        session.run = AsyncMock(side_effect=ConnectionError("memgraph unavailable"))
+        mock_driver.session = MagicMock(return_value=session)
+
+        resp = client.get("/api/cdgs")
+
+        assert resp.status_code == 503
+        assert resp.json() == {"detail": "The optional Memgraph CDG browser is unavailable."}
+
     def test_filter_by_concept_type(self, client, mock_driver):
         records = [
             {

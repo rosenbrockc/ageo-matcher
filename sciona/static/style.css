@@ -266,6 +266,97 @@ body {
 .evolution-guidance-controls button.is-danger { color: #b71c1c; border-color: #ef9a9a; }
 #evolution-guidance-status { color: #546e7a; max-width: 260px; }
 
+/* Guided workflow tour */
+.guided-tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.guided-tour-spotlight {
+  position: fixed;
+  border: 2px solid #42a5f5;
+  border-radius: 6px;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.66), 0 0 0 4px rgba(66, 165, 245, 0.22);
+  transition: left 160ms ease, top 160ms ease, width 160ms ease, height 160ms ease;
+  pointer-events: none;
+}
+
+.guided-tour-dialog {
+  position: fixed;
+  padding: 16px;
+  border: 1px solid #90a4ae;
+  border-radius: 6px;
+  background: #fff;
+  color: #263238;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+  pointer-events: auto;
+}
+
+.guided-tour-heading,
+.guided-tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#guided-tour-progress {
+  color: #607d8b;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+#guided-tour-close {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #546e7a;
+  cursor: pointer;
+  font-size: 22px;
+}
+
+#guided-tour-title {
+  margin: 8px 0 6px;
+  color: #102a43;
+  font-size: 18px;
+}
+
+#guided-tour-body {
+  min-height: 62px;
+  color: #455a64;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.guided-tour-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.guided-tour-actions button {
+  min-width: 72px;
+  padding: 6px 12px;
+  border: 1px solid #90a4ae;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.guided-tour-actions button.is-primary {
+  border-color: #1565c0;
+  background: #1976d2;
+  color: #fff;
+}
+
+.guided-tour-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 @media (max-width: 900px) {
   .evolution-transition { align-items: flex-start; flex-wrap: wrap; }
   .evolution-guidance-controls { order: 2; margin-left: 0; width: 100%; }

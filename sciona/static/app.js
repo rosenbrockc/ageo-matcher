@@ -58,6 +58,10 @@
     return FAMILY_COLORS[family] || FAMILY_COLORS.other;
   }
 
+  function localApiAvailable() {
+    return Boolean(window.location && window.location.protocol !== "file:");
+  }
+
   function handleFile(file, graphControls) {
     var reader = new FileReader();
     reader.onload = function (e) {
@@ -93,9 +97,9 @@
         description: "Locate recurring waveform events using the selected detector atom.",
         concept_type: "signal_transform",
         status: "atomic",
-        matched_primitive: "sciona.atoms.signal_processing.biosppy.ecg_detectors.hamilton_segmentation",
+        matched_primitive: "sciona.atoms.signal_processing.biosppy.ecg_detectors.atoms.hamilton_segmentation",
         inputs: [
-          { name: "filtered", type_desc: "np.ndarray", constraints: "sample aligned" },
+          { name: "signal", type_desc: "np.ndarray", constraints: "sample aligned" },
           { name: "sampling_rate", type_desc: "float", constraints: "positive" }
         ],
         outputs: [{ name: "events", type_desc: "np.ndarray", constraints: "monotonic sample indices" }],
@@ -109,7 +113,7 @@
         status: "atomic",
         matched_primitive: "sciona.atoms.signal_processing.biosppy.ecg.heart_rate_computation",
         inputs: [
-          { name: "events", type_desc: "np.ndarray", constraints: "monotonic sample indices" },
+          { name: "rpeaks", type_desc: "np.ndarray", constraints: "monotonic sample indices" },
           { name: "sampling_rate", type_desc: "float", constraints: "positive" }
         ],
         outputs: [
@@ -124,7 +128,7 @@
         source_id: "condition",
         target_id: "detect",
         output_name: "filtered",
-        input_name: "filtered",
+        input_name: "signal",
         source_type: "np.ndarray",
         target_type: "np.ndarray"
       },
@@ -132,7 +136,7 @@
         source_id: "detect",
         target_id: "measure",
         output_name: "events",
-        input_name: "events",
+        input_name: "rpeaks",
         source_type: "np.ndarray",
         target_type: "np.ndarray"
       }
@@ -151,6 +155,7 @@
     initial.nodes = initial.nodes.filter(function (node) { return node.node_id !== "condition"; });
     initial.nodes.forEach(function (node) { node.matched_primitive = ""; });
     initial.nodes.find(function (node) { return node.node_id === "detect"; }).inputs[0].name = "signal";
+    initial.nodes.find(function (node) { return node.node_id === "measure"; }).inputs[0].name = "events";
     initial.edges = [{
       source_id: "detect", target_id: "measure", output_name: "events", input_name: "events",
       source_type: "np.ndarray", target_type: "np.ndarray"
@@ -337,6 +342,7 @@
   var isoControls = null;
   var runnerControls = null;
   var evolutionControls = null;
+  var guidedTourControls = null;
   var activeEvolutionRunId = "";
 
   detailControls = window.initVisualizerDetailPanel({
@@ -347,7 +353,7 @@
     getNodeColors: getNodeColors,
     focusNode: function (nodeId) { graphControls.focusNode(nodeId); },
     getRunId: function () { return runnerControls ? runnerControls.getActiveRunId() : null; },
-    isApiAvailable: function () { return browserControls && browserControls.isApiAvailable(); },
+    isApiAvailable: localApiAvailable,
     getCurrentData: function () { return graphControls ? graphControls.getCurrentData() : null; },
     validateAndLoad: function (data) { if (graphControls) graphControls.validateAndLoad(data); },
     onGraphRewritten: function (data, transition) {
@@ -376,14 +382,19 @@
         detailControls.fetchQuickFixes(null);
       }
     },
-    isApiAvailable: function () { return browserControls && browserControls.isApiAvailable(); }
+    isApiAvailable: localApiAvailable
   });
 
   runnerControls = window.initVisualizerRunner({
     getCy: function () { return graphControls.getCy(); },
     getCurrentData: function () { return graphControls.getCurrentData(); },
-    isApiAvailable: function () { return browserControls && browserControls.isApiAvailable(); },
-    detailControls: detailControls
+    isApiAvailable: localApiAvailable,
+    detailControls: detailControls,
+    onExecutionComplete: function () {
+      if (guidedTourControls && guidedTourControls.getActiveIndex() === 1) {
+        guidedTourControls.next();
+      }
+    }
   });
 
   // Intercept validateAndLoad to trigger runner panel repo session sync
@@ -420,6 +431,65 @@
           })
         }).catch(function () {});
       }
+    }
+  });
+
+  guidedTourControls = window.initGuidedTour({
+    steps: [
+      {
+        id: "objective",
+        target: "#metadata-bar",
+        title: "Start from the objective",
+        description: "Confirm the goal, paradigm, and active run. Every graph revision should be judged against the same intended behavior."
+      },
+      {
+        id: "inputs",
+        target: "#run-modal .iso-modal-content",
+        title: "Provide evaluation data",
+        description: "Root inputs make the graph executable. Use representative data and references so the objective can produce comparable loss for each revision."
+      },
+      {
+        id: "graph",
+        target: "#cy-container",
+        title: "Read the computation graph",
+        description: "Follow data flow from inputs through atomic operations. Select any node to inspect its contract, implementation, and place in the chain."
+      },
+      {
+        id: "node-evidence",
+        target: "#detail-panel",
+        title: "Inspect intermediate evidence",
+        description: "The Execution tab exposes the selected node's concrete inputs and outputs. This is where domain intuition can identify a failing stage before final loss does."
+      },
+      {
+        id: "compare",
+        target: "#evolution-workspace",
+        title: "Compare graph revisions",
+        description: "Move between version tabs and review the operation, loss delta, and structural diff. A lower loss is evidence, not permission to ignore graph intent."
+      },
+      {
+        id: "refine",
+        target: ".evolution-guidance-controls",
+        title: "Direct the next refinement",
+        description: "Describe the next direction from the selected version, or reject a dead end and branch from its parent. Guidance remains attached to the evolution trace."
+      }
+    ],
+    prepareStep: function (step) {
+      if (step.id === "inputs") {
+        runnerControls.openInputDialog();
+        return;
+      }
+      runnerControls.closeInputDialog();
+      if (step.id === "node-evidence") {
+        var cy = graphControls.getCy();
+        if (cy && cy.nodes().length) {
+          var selected = cy.nodes()[0];
+          detailControls.handleNodeSelected(selected.data("_nodeData"));
+          detailControls.activateTab("execution");
+        }
+      }
+    },
+    onFinish: function () {
+      runnerControls.closeInputDialog();
     }
   });
 
@@ -487,12 +557,26 @@
   }
 
   var btnTutorials = document.getElementById("btn-tutorials");
+  var btnGuidedTour = document.getElementById("btn-guided-tour");
   var btnTutorialsClose = document.getElementById("btn-tutorials-close");
   var tutorialsModal = document.getElementById("tutorials-modal");
 
   if (btnTutorials && tutorialsModal) {
     btnTutorials.addEventListener("click", function () {
       tutorialsModal.classList.remove("hidden");
+    });
+  }
+
+  if (btnGuidedTour) {
+    btnGuidedTour.addEventListener("click", function () {
+      var currentGraph = graphControls.getCurrentData();
+      if (!currentGraph) {
+        activeEvolutionRunId = "";
+        evolutionControls.loadTrace(buildTutorialAEvolution());
+      } else if (!evolutionControls.getTrace().versions.length) {
+        evolutionControls.start(currentGraph, { label: "Current graph" });
+      }
+      guidedTourControls.start();
     });
   }
 
@@ -531,6 +615,7 @@
       activeEvolutionRunId = "";
       evolutionControls.loadTrace(buildTutorialAEvolution());
       if (tutorialsModal) tutorialsModal.classList.add("hidden");
+      guidedTourControls.start();
     });
   }
   if (btnLoadTutB) {
@@ -566,8 +651,6 @@
   }
 
   requestAnimationFrame(animateFlow);
-  browserControls.fetchCDGList();
-
   // Startup URL-based loader
   var queryRepo = null;
   var search = window.location ? window.location.search : "";
