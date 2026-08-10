@@ -66,6 +66,13 @@ body {
   overflow-x: auto;
 }
 
+.toolbar-command-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
 #toolbar button {
   padding: 4px 12px;
   border: 1px solid #90a4ae;
@@ -73,6 +80,24 @@ body {
   background: #fff;
   cursor: pointer;
   font-size: 13px;
+}
+
+#toolbar .toolbar-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 32px;
+}
+
+.toolbar-icon-btn svg,
+#btn-graph-menu svg,
+#graph-view-menu svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+  pointer-events: none;
 }
 
 #toolbar button:hover {
@@ -97,6 +122,103 @@ body {
   background: #b0bec5;
   flex-shrink: 0;
 }
+
+/* Floating Cytoscape view controls */
+#graph-view-controls {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 45;
+}
+
+#btn-graph-menu {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid #78909c;
+  border-radius: 6px;
+  background: #263238;
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(38, 50, 56, 0.24);
+  cursor: pointer;
+}
+
+#btn-graph-menu:hover,
+#btn-graph-menu[aria-expanded="true"] {
+  background: #37474f;
+}
+
+#btn-graph-menu:focus-visible,
+#graph-view-menu button:focus-visible,
+.graph-layout-options input:focus-visible + span {
+  outline: 2px solid #42a5f5;
+  outline-offset: 2px;
+}
+
+#graph-view-menu {
+  position: absolute;
+  left: 0;
+  bottom: 50px;
+  width: 210px;
+  padding: 8px;
+  border: 1px solid #b0bec5;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(38, 50, 56, 0.2);
+}
+
+.graph-view-menu-heading,
+#graph-view-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #37474f;
+  font-size: 12px;
+  text-align: left;
+}
+
+.graph-view-menu-heading {
+  min-height: 30px;
+  color: #546e7a;
+  font-weight: 700;
+}
+
+#graph-view-menu button { cursor: pointer; }
+#graph-view-menu button:hover { background: #eceff1; }
+#graph-view-menu button:disabled { cursor: default; opacity: 0.42; }
+#graph-view-menu button:disabled:hover { background: transparent; }
+
+.graph-layout-options {
+  display: grid;
+  gap: 2px;
+  padding: 0 4px 5px 30px;
+}
+
+.graph-layout-options label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  color: #455a64;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.graph-layout-options label:has(input:disabled) {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.graph-layout-options input { margin: 0; }
+.graph-view-menu-separator { height: 1px; margin: 5px 4px; background: #eceff1; }
 
 /* In-graph search */
 #graph-search {

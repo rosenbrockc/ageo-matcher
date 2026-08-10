@@ -246,6 +246,10 @@ class FakeDocument {
     if (!this.listeners[type]) this.listeners[type] = [];
     this.listeners[type].push(handler);
   }
+
+  dispatchEvent(type, event = {}) {
+    (this.listeners[type] || []).forEach((handler) => handler(event));
+  }
 }
 
 function addElement(document, tagName, id, parent, options = {}) {
@@ -273,14 +277,10 @@ function createVisualizerDocument() {
     "meta-edges",
     "meta-thread",
     "status-text",
-    "btn-fit",
-    "btn-reset",
-    "layout-select",
     "cy-container",
     "drop-zone",
     "graph-search",
     "legend-panel",
-    "btn-legend",
     "breadcrumb-bar",
     "breadcrumb-content",
     "btn-browse",
@@ -384,9 +384,24 @@ function createVisualizerDocument() {
     "guided-tour-close",
   ].forEach((id) => addElement(document, "div", id, body));
 
-  const layoutSelect = document.getElementById("layout-select");
-  layoutSelect.tagName = "SELECT";
-  layoutSelect.value = "dagre";
+  const graphViewControls = addElement(document, "div", "graph-view-controls", body);
+  const graphViewMenu = addElement(document, "div", "graph-view-menu", graphViewControls, {
+    classes: ["hidden"],
+  });
+  ["dagre", "cose", "breadthfirst"].forEach((value, index) => {
+    addElement(document, "input", "", graphViewMenu, {
+      checked: index === 0,
+      attributes: { name: "graph-layout", value },
+    });
+  });
+  addElement(document, "button", "btn-fit", graphViewMenu);
+  addElement(document, "button", "btn-reset", graphViewMenu);
+  addElement(document, "button", "btn-legend", graphViewMenu, {
+    attributes: { "aria-checked": "false" },
+  });
+  addElement(document, "button", "btn-graph-menu", graphViewControls, {
+    attributes: { "aria-expanded": "false" },
+  });
 
   const graphSearch = document.getElementById("graph-search");
   graphSearch.tagName = "INPUT";
@@ -473,6 +488,9 @@ function createCytoscapeStub() {
     getElementById() { return { length: 0 }; },
     animate() {},
     zoom() { return 1; },
+    layout() { return { run() {} }; },
+    fit() {},
+    resize() {},
   };
 }
 
@@ -601,6 +619,67 @@ test("index.html keeps the visualizer script order explicit", () => {
   const scriptSrcs = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
   const localScripts = scriptSrcs.filter((src) => !src.startsWith("https://"));
   assert.deepEqual(localScripts, localVisualizerScripts);
+});
+
+test("toolbar uses accessible icon commands and moves graph controls into a floating menu", () => {
+  const html = fs.readFileSync(path.join(staticDir, "index.html"), "utf8");
+  [
+    ["btn-browse", "panel-left-open"],
+    ["btn-tutorials", "book-open"],
+    ["btn-guided-tour", "map"],
+    ["btn-open", "folder-open"],
+    ["btn-run-cdg", "play"],
+    ["btn-new-inputs", "list-restart"],
+    ["btn-history", "history"],
+  ].forEach(([id, icon]) => {
+    assert.match(html, new RegExp(`id="${id}"[^>]+aria-label="[^"]+"[^>]*>\\s*<i data-lucide="${icon}"`));
+  });
+  assert.match(html, /id="btn-graph-menu"[^>]+aria-haspopup="menu"/);
+  assert.match(html, /name="graph-layout" value="dagre" checked/);
+  assert.match(html, /id="graph-view-menu" class="hidden" role="menu"/);
+  assert.doesNotMatch(html, /id="layout-select"/);
+});
+
+test("floating graph menu manages disabled, legend, and keyboard states", () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: false, json: async () => ({}) }));
+  loadScripts(context, ["graph_styles.js", "graph_state.js", "graph_core.js"]);
+
+  const controls = context.window.initVisualizerGraph({
+    familyColors: {},
+    familyLabels: {},
+    getNodeColors: () => ({ bg: "#fff", border: "#000", text: "#000" }),
+    statusShapes: {},
+    isApiAvailable: () => false,
+  });
+  const menu = document.getElementById("graph-view-menu");
+  const menuButton = document.getElementById("btn-graph-menu");
+  const fitButton = document.getElementById("btn-fit");
+  const legendButton = document.getElementById("btn-legend");
+
+  assert.equal(fitButton.disabled, true);
+  assert.equal(document.querySelector('input[name="graph-layout"]').disabled, true);
+  menuButton.click();
+  assert.equal(menu.classList.contains("hidden"), false);
+  assert.equal(menuButton.getAttribute("aria-expanded"), "true");
+
+  controls.validateAndLoad(sampleGraphData());
+  assert.equal(fitButton.disabled, false);
+  legendButton.click();
+  assert.equal(document.getElementById("legend-panel").classList.contains("visible"), true);
+  assert.equal(legendButton.getAttribute("aria-checked"), "true");
+  assert.equal(menu.classList.contains("hidden"), true);
+
+  menuButton.click();
+  document.dispatchEvent("keydown", { key: "Escape", preventDefault() {} });
+  assert.equal(menu.classList.contains("hidden"), true);
+  assert.equal(menuButton.getAttribute("aria-expanded"), "false");
+  assert.equal(menuButton.focused, true);
+
+  menuButton.click();
+  document.dispatchEvent("click", { target: document.body });
+  assert.equal(menu.classList.contains("hidden"), true);
+  assert.equal(menuButton.getAttribute("aria-expanded"), "false");
 });
 
 test("graph_state supports structured search and element generation", () => {

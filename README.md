@@ -1,22 +1,27 @@
-# AGEO-Matcher
+# Sciona Matcher
 
-**Verified retrieval-augmented composition** for algorithm synthesis. Decomposes a goal into typed sub-problems, matches each against a catalog of real library functions, verifies the matches actually work, and assembles the result.
+Sciona Matcher is a **catalog-first, verified composition system for algorithm development**. It helps an agent and a human developer turn an objective into a typed Conceptual Dependency Graph (CDG), retrieve proven building blocks, assemble an executable algorithm, evaluate it against real data, and refine the graph without regenerating known work from scratch.
 
-Given a predicate like `forall n m : Nat, n + m = m + n`, AGEO-Matcher searches a proof library, ranks candidates, and verifies matches through the compiler -- returning `Nat.add_comm` with a machine-checked proof that the types unify. For Python targets, it verifies that matched functions are importable, callable, and have compatible signatures.
+The project is intentionally cross-disciplinary. An atom may be a signal-processing primitive, a statistical estimator, a geometry operation, a financial transform, a robotics component, or a machine-checked theorem. Reusable structures and successful CDGs capture how those atoms have worked together on prior problems. ECG heart-rate detection is a deliberately approachable showcase, not a special case in the architecture.
+
+Sciona separates **discovery** from **installation**. Metadata for atoms, structures, CDGs, and evaluation datasets lives in PostgreSQL and remains searchable even when its provider package is absent. Once a candidate is selected, only the distribution providing that exact fully qualified atom is installed into the environment. Provider repositories contribute to the shared `sciona.atoms` [PEP 420](https://peps.python.org/pep-0420/) namespace, so a catalog can grow to many thousands of discipline-specific atoms without making every developer install all of them up front.
 
 The product website, API, Docker stack, Supabase project, and deployment assets
 are being split into the sibling repository `../sciona-infra`. This repository
 is the core algorithm-generation and tooling package.
 
-## Why not just use an LLM?
+## Project intent
 
-Strong LLMs already handle simple coding tasks well. This system targets a narrower, more defensible niche:
+Strong models can write many algorithms directly. Sciona is useful when the cost, reliability, and auditability of repeatedly creating those algorithms matters:
 
-- **Verification-first.** Every match is verified (compiler proof, import check, arity check) before acceptance. The system proves its outputs work, rather than hoping they do.
-- **Deterministic-first.** Every prompt call that can be replaced by a regex, AST walk, embedding lookup, or type check has been. LLMs handle conceptual decomposition and ambiguous cases; deterministic tools handle everything with a known structure.
-- **Compounding reuse.** Each successful match enriches the catalog. Each solved decomposition pattern can be reused. The system gets cheaper and faster over time on the same domain.
+- **Catalog-first reuse.** Search for atoms, structures, and successful CDGs before synthesizing new code. A discipline-specific solution should surface and be used when its evidence fits the objective.
+- **Verification-first composition.** Matches are checked through compiler proofs, import and signature checks, contracts, ghost witnesses, or evaluation data as appropriate to the domain.
+- **Deterministic-first execution.** Structured parsing, catalog search, type checks, graph assembly, execution, and scoring stay deterministic. Language models are reserved for conceptual ambiguity and graph evolution.
+- **Compounding knowledge.** Successful components, graph patterns, provenance, and evaluations become reusable evidence for later problems.
+- **Human-guided evolution.** The visualizer exposes intermediate values, losses, graph diffs, and branch history so domain experts can redirect an unpromising search before more agent time is spent.
+- **Agent-tool interoperability.** Codex, Claude, agy, or another command-line agent can use Sciona's catalog and runtime as deterministic tools without needing a separate Sciona API key or a second hosted-model call hidden behind the CLI.
 
-See [ROADMAP.md](ROADMAP.md) for the full positioning rationale.
+The target comparison is therefore not only whether a large model can solve a problem. It is whether a smaller, faster agent can retrieve and compose validated knowledge with fewer tokens, less elapsed time, and a more reproducible result.
 
 ## Execution modes
 
@@ -39,10 +44,10 @@ The system implements an **Agentic Development Cycle** with four rounds, wrapped
 
 **Round 1 -- Architect** (Conceptual Dependency Agent): decomposes a high-level goal into an atomic Conceptual Dependency Graph (CDG) using LangGraph, with PostgreSQL-backed checkpointing for time-travel and fork/resume.
 
-**Round 2 -- Hunter** (Functional Matching Agent): grounds each atomic CDG leaf into a verified library function through:
+**Round 2 -- Hunter** (Functional Matching Agent): grounds each atomic CDG leaf into a verified catalog function through:
 
-1. **Semantic Indexer** -- embeds library declarations with UniXcoder into a FAISS vector store
-2. **Embedding Reranker** -- cosine similarity + type-token bonus ranking; falls back to LLM only when the top-2 margin is below threshold
+1. **Catalog retrieval** -- searches PostgreSQL metadata and, when configured, semantic indexes without requiring provider distributions to be installed
+2. **Reranking** -- combines semantic similarity, lexical evidence, types, contracts, and provenance; ambiguous cases may be escalated to an agent
 3. **Verification Oracle** -- compiler-based checking (Lean 4, Coq) or import-based verification (Python)
 4. **Failure Analyzer** -- deterministic regex analysis for known error patterns; LLM fallback for unrecognized errors
 
@@ -69,6 +74,9 @@ pip install -e ".[indexer,coq,hunter]"
 # With ghost witness simulation (requires sciona-atoms)
 pip install -e ".[ghost]"
 
+# With the human-guided visualizer
+pip install -e ".[visualizer]"
+
 # Everything
 pip install -e ".[all]"
 ```
@@ -80,14 +88,74 @@ rather than installing platform dependencies here.
 
 - **Lean 4**: Install [elan](https://github.com/leanprover/elan) and run `lean-explore data fetch` for Mathlib data
 - **Coq**: Install via opam with your project's dependencies
-- **LLM**: Configure one provider in `.env`
+- **PostgreSQL**: Recommended for the shared atom/provider/data catalog and required for persistent catalog workflows
+- **LLM (optional)**: Catalog search, provider installation, deterministic execution, and UI inspection do not require an LLM API key. Configure a provider only for Sciona commands that perform agent-driven decomposition or refinement:
   - Anthropic: `SCIONA_LLM_PROVIDER=anthropic` + `SCIONA_ANTHROPIC_API_KEY`
   - Codex: `SCIONA_LLM_PROVIDER=codex` + `SCIONA_OPENAI_API_KEY`
   - Local llama.cpp (Hunter default): `SCIONA_HUNTER_LLM_PROVIDER=llama_cpp`
 
+An external CLI agent can own the language reasoning and call Sciona only for deterministic discovery, materialization, execution, and validation. PostgreSQL full-text search is the current zero-key retrieval baseline. Hybrid semantic search is used when compatible catalog embeddings are configured; canonical local catalog embeddings remain planned work and are tracked in [Local agent tooling](docs/LOCAL_AGENT_TOOLING.md).
+
+## Catalog and providers
+
+Atoms are published by independent provider distributions rather than bundled into this repository. Their metadata includes the exact Python symbol, owning distribution, version and integrity information, contracts, provenance, and searchable discipline tags. Searching is side-effect free; installation is an explicit action on one selected candidate.
+
+```bash
+# Point the client at a local catalog API backed by the local PostgreSQL stack.
+export SCIONA_API_URL=http://127.0.0.1:8000
+
+# Search metadata. No provider package is installed.
+sciona catalog search "estimate energy from mass and velocity"
+
+# Materialize only the distribution that owns the selected atom.
+sciona catalog install sciona.atoms.physics.mechanics.kinetic_energy
+```
+
+Provider workspaces can be audited, published, reconciled, and release-validated with first-class catalog commands:
+
+```bash
+sciona catalog audit-providers \
+  --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+sciona catalog publish-providers --workspace-root ../ --apply --ensure-owner
+sciona catalog reconcile-providers --workspace-root ../ --strict
+sciona catalog validate-provider-release ../sciona-atoms-physics
+```
+
+Evaluation data follows the same decoupled model. Atom and CDG packages do not contain mutable dataset URLs. PostgreSQL associates versioned, checksum-pinned artifacts and evaluation contracts with atoms or graph inputs, allowing new public data to be added without changing or rereleasing provider code. The visualizer downloads an artifact only when execution needs it and caches verified content under `~/.cache/sciona/datasets`.
+
+```bash
+# Validate a dataset manifest, then persist it when ready.
+sciona catalog ingest-dataset dataset.json
+sciona catalog ingest-dataset dataset.json --apply \
+  --database-url postgresql://postgres:postgres@127.0.0.1:54322/postgres
+```
+
+See [Provider catalog runtime](docs/provider_catalog_runtime.md), [Data artifact catalog](docs/DATA_ARTIFACT_CATALOG.md), and [Local agent tooling](docs/LOCAL_AGENT_TOOLING.md) for the schemas and operating model.
+
+## Human-guided visual development
+
+The visualizer makes graph evolution inspectable and steerable rather than presenting only a final generated file:
+
+```bash
+sciona visualize --api
+# Open the printed URL (http://127.0.0.1:8080 by default).
+```
+
+The intended workflow is:
+
+1. **State the objective and provide evaluation data.** Choose catalog-backed inputs whose evaluation contract defines references, named outputs, and the loss to compute. Without representative inputs, versions can execute but cannot be compared meaningfully.
+2. **Inspect the initial match.** Open any CDG node to review its contract, provenance, ports, and intermediate inputs and outputs. Execution and repair diagnostics remain attached to the version being examined.
+3. **Compare evolution versions.** Initial match, Principal expansion, and later refinements appear as separate tabs with loss, loss delta, and structural changes. Graph diffs identify added, removed, and changed nodes.
+4. **Guide refinement.** Select the version to refine, describe the observed problem or desired direction, and create a candidate branch. The proposal is executed and evaluated against the same contract so its effect is measurable.
+5. **Continue, reject, or branch.** Continue refining a useful candidate, or reject a direction while preserving its history and returning to its parent. The branch graph modal shows the execution-version DAG and allows any prior version to become a new branch point.
+
+The fixed visualization menu provides layout, fit, reset, and legend controls without competing with graph actions. The toolbar exposes browsing, the guided tutorial and tour, file opening, execution, evaluation inputs, and branch history. Compare and telemetry views support deeper diagnosis, while the repair log records deterministic validation and ghost-witness failures.
+
+The ECG showcase demonstrates this loop with public data, but objective definition, dataset selection, node inspection, scoring, refinement guidance, and branching are generic operations shared by every discipline. See [Visualizer documentation](docs/VISUALIZE.md) and the [cross-disciplinary blind evaluation](docs/CROSS_DISCIPLINARY_BLIND_EVALUATION.md).
+
 ## Configuration
 
-All settings are read from `.env` (prefixed with `SCIONA_`) via pydantic-settings:
+Core pipeline settings are read from `.env` (prefixed with `SCIONA_`) via pydantic-settings; catalog and service clients also consume the connection variables shown below:
 
 ```bash
 # .env
@@ -110,21 +178,25 @@ SCIONA_HUNTER_MAX_ITERATIONS=5
 # Used by Architect checkpoints, shared context, and telemetry
 SCIONA_POSTGRES_URI=postgresql://sciona:sciona_dev@localhost:5433/sciona_architect
 
+# Local provider/data catalog and the catalog API used by CLI search/install
+SCIONA_DATA_CATALOG_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+SCIONA_API_URL=http://127.0.0.1:8000
+
 # Telemetry storage: "auto" (Postgres when URI set), "postgres", or "file"
 SCIONA_TELEMETRY_BACKEND=auto
 ```
 
 CLI flags override `.env` when provided. See `sciona/config.py` for all options.
 
-### PostgreSQL setup (optional)
+### PostgreSQL setup
 
-PostgreSQL is used for Architect checkpoint persistence, shared context, and pipeline telemetry. Use any local Postgres instance, or reuse the Docker assets from the sibling `sciona-infra` repository:
+PostgreSQL is the durable source for provider and data catalog metadata. It is optional for one-off in-memory decomposition, but recommended for the intended catalog-first workflow. Architect checkpoints, shared context, and pipeline telemetry can use the same service or a separate database. Use any local PostgreSQL instance, or reuse the Docker assets from the sibling `sciona-infra` repository:
 
 ```bash
 # Default URI: postgresql://sciona:sciona_dev@localhost:5433/sciona_architect
 ```
 
-Tables are created automatically on first use. Set `SCIONA_TELEMETRY_BACKEND=file` to disable Postgres telemetry even when a URI is configured.
+Runtime tables are created automatically where supported; catalog schemas are applied by the local infrastructure migrations. Set `SCIONA_TELEMETRY_BACKEND=file` to disable PostgreSQL telemetry even when a URI is configured.
 
 ## Usage
 

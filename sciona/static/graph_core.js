@@ -10,7 +10,12 @@
     var statusText = document.getElementById("status-text");
     var btnFit = document.getElementById("btn-fit");
     var btnReset = document.getElementById("btn-reset");
-    var layoutSelect = document.getElementById("layout-select");
+    var layoutInputs = Array.prototype.slice.call(
+      document.querySelectorAll('input[name="graph-layout"]')
+    );
+    var graphViewControls = document.getElementById("graph-view-controls");
+    var graphViewMenu = document.getElementById("graph-view-menu");
+    var btnGraphMenu = document.getElementById("btn-graph-menu");
     var cyContainer = document.getElementById("cy-container");
     var dropZone = document.getElementById("drop-zone");
     var graphSearch = document.getElementById("graph-search");
@@ -28,6 +33,42 @@
       breadcrumbBar: breadcrumbBar,
       breadcrumbContent: breadcrumbContent
     });
+
+    function selectedLayout() {
+      var selected = layoutInputs.find(function (input) { return input.checked; });
+      return selected ? selected.value : "dagre";
+    }
+
+    function setGraphControlsEnabled(enabled) {
+      layoutInputs.forEach(function (input) { input.disabled = !enabled; });
+      if (btnFit) btnFit.disabled = !enabled;
+      if (btnReset) btnReset.disabled = !enabled;
+    }
+
+    function closeGraphViewMenu(returnFocus) {
+      if (!graphViewMenu || !btnGraphMenu) return;
+      graphViewMenu.classList.add("hidden");
+      btnGraphMenu.setAttribute("aria-expanded", "false");
+      if (returnFocus) btnGraphMenu.focus();
+    }
+
+    function openGraphViewMenu() {
+      if (!graphViewMenu || !btnGraphMenu) return;
+      graphViewMenu.classList.remove("hidden");
+      btnGraphMenu.setAttribute("aria-expanded", "true");
+      var selected = layoutInputs.find(function (input) { return input.checked && !input.disabled; });
+      var focusTarget = selected || btnLegend;
+      if (focusTarget) focusTarget.focus();
+    }
+
+    function isInsideGraphViewControls(target) {
+      var current = target;
+      while (current) {
+        if (current === graphViewControls) return true;
+        current = current.parentNode;
+      }
+      return false;
+    }
 
     function setStatus(text) {
       if (statusText) statusText.textContent = text;
@@ -71,7 +112,7 @@
 
       var visible = cy.elements().not(".collapsed-hidden");
       if (visible.length > 0) {
-        visible.layout(styles.getLayoutConfig(layoutSelect.value)).run();
+        visible.layout(styles.getLayoutConfig(selectedLayout())).run();
       }
 
       setStatus(Object.keys(visibleNodeIds).length + " of " + currentData.nodes.length + " nodes visible");
@@ -175,6 +216,7 @@
     }
 
     function buildGraph(data) {
+      setGraphControlsEnabled(false);
       if (cy) {
         cy.destroy();
         cy = null;
@@ -204,8 +246,9 @@
 
       var visible = cy.elements().not(".collapsed-hidden");
       if (visible.length > 0) {
-        visible.layout(styles.getLayoutConfig(layoutSelect.value)).run();
+        visible.layout(styles.getLayoutConfig(selectedLayout())).run();
       }
+      setGraphControlsEnabled(true);
 
       cy.on("tap", function (e) {
         if (e.target === cy) {
@@ -353,31 +396,60 @@
     });
 
     styles.buildLegend();
+    setGraphControlsEnabled(false);
+
+    if (btnGraphMenu && graphViewMenu) {
+      btnGraphMenu.addEventListener("click", function () {
+        if (graphViewMenu.classList.contains("hidden")) {
+          openGraphViewMenu();
+        } else {
+          closeGraphViewMenu(true);
+        }
+      });
+      document.addEventListener("click", function (event) {
+        if (
+          !graphViewMenu.classList.contains("hidden") &&
+          !isInsideGraphViewControls(event.target)
+        ) {
+          closeGraphViewMenu(false);
+        }
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && !graphViewMenu.classList.contains("hidden")) {
+          event.preventDefault();
+          closeGraphViewMenu(true);
+        }
+      });
+    }
 
     if (btnLegend && legendPanel) {
       btnLegend.addEventListener("click", function () {
-        legendPanel.classList.toggle("visible");
+        var visible = legendPanel.classList.toggle("visible");
+        btnLegend.setAttribute("aria-checked", visible ? "true" : "false");
+        closeGraphViewMenu(false);
       });
     }
 
-    if (layoutSelect) {
-      layoutSelect.addEventListener("change", function () {
-        if (cy) cy.layout(styles.getLayoutConfig(layoutSelect.value)).run();
+    layoutInputs.forEach(function (input) {
+      input.addEventListener("change", function () {
+        if (input.checked && cy) cy.layout(styles.getLayoutConfig(input.value)).run();
       });
-    }
+    });
 
     if (btnFit) {
       btnFit.addEventListener("click", function () {
         if (cy) cy.fit(undefined, 30);
+        closeGraphViewMenu(false);
       });
     }
 
     if (btnReset) {
       btnReset.addEventListener("click", function () {
         if (cy) {
-          cy.layout(styles.getLayoutConfig(layoutSelect.value)).run();
+          cy.layout(styles.getLayoutConfig(selectedLayout())).run();
           cy.fit(undefined, 30);
         }
+        closeGraphViewMenu(false);
       });
     }
 

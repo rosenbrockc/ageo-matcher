@@ -41,27 +41,36 @@
 
   <!-- Toolbar -->
   <div id="toolbar">
-    <button id="btn-browse">Browse CDGs</button>
-    <button id="btn-tutorials">Showcase Tutorials</button>
-    <button id="btn-guided-tour">Guided Tour</button>
-    <button id="btn-open">Open File...</button>
-    <button id="btn-run-cdg" class="hidden">Run CDG</button>
-    <button id="btn-new-inputs" class="hidden">New Inputs</button>
-    <button id="btn-history" class="hidden">History</button>
-    <label for="layout-select">Layout:</label>
-    <select id="layout-select">
-      <option value="dagre" selected>Hierarchical</option>
-      <option value="cose">Force-directed</option>
-      <option value="breadthfirst">Breadthfirst</option>
-    </select>
-    <button id="btn-fit">Fit</button>
-    <button id="btn-reset">Reset</button>
+    <div class="toolbar-command-group" role="group" aria-label="Graph commands">
+      <button id="btn-browse" class="toolbar-icon-btn" type="button" title="Browse CDGs" aria-label="Browse CDGs"><i data-lucide="panel-left-open"></i></button>
+      <button id="btn-tutorials" class="toolbar-icon-btn" type="button" title="Showcase tutorials" aria-label="Showcase tutorials"><i data-lucide="book-open"></i></button>
+      <button id="btn-guided-tour" class="toolbar-icon-btn" type="button" title="Guided tour" aria-label="Guided tour"><i data-lucide="map"></i></button>
+      <button id="btn-open" class="toolbar-icon-btn" type="button" title="Open CDG file" aria-label="Open CDG file"><i data-lucide="folder-open"></i></button>
+      <button id="btn-run-cdg" class="toolbar-icon-btn hidden" type="button" title="Run CDG" aria-label="Run CDG"><i data-lucide="play"></i></button>
+      <button id="btn-new-inputs" class="toolbar-icon-btn hidden" type="button" title="Configure new inputs" aria-label="Configure new inputs"><i data-lucide="list-restart"></i></button>
+      <button id="btn-history" class="toolbar-icon-btn hidden" type="button" title="Run history" aria-label="Run history"><i data-lucide="history"></i></button>
+    </div>
     <div class="toolbar-separator"></div>
     <input type="text" id="graph-search" placeholder="Search nodes... (type:sampler, status:atomic)">
-    <button id="btn-legend">Legend</button>
     <button id="btn-compare">Compare</button>
     <button id="btn-dashboard">Telemetry</button>
     <span id="status-text">No data loaded</span>
+  </div>
+
+  <div id="graph-view-controls">
+    <div id="graph-view-menu" class="hidden" role="menu" aria-label="Visualization options">
+      <div class="graph-view-menu-heading"><i data-lucide="layout-template"></i><span>Layout</span></div>
+      <div class="graph-layout-options" role="radiogroup" aria-label="Graph layout">
+        <label><input type="radio" name="graph-layout" value="dagre" checked><span>Hierarchical</span></label>
+        <label><input type="radio" name="graph-layout" value="cose"><span>Force-directed</span></label>
+        <label><input type="radio" name="graph-layout" value="breadthfirst"><span>Breadth-first</span></label>
+      </div>
+      <div class="graph-view-menu-separator"></div>
+      <button id="btn-fit" type="button" role="menuitem"><i data-lucide="scan"></i><span>Fit</span></button>
+      <button id="btn-reset" type="button" role="menuitem"><i data-lucide="rotate-ccw"></i><span>Reset</span></button>
+      <button id="btn-legend" type="button" role="menuitemcheckbox" aria-checked="false"><i data-lucide="list-tree"></i><span>Legend</span></button>
+    </div>
+    <button id="btn-graph-menu" type="button" title="Visualization options" aria-label="Visualization options" aria-haspopup="menu" aria-controls="graph-view-menu" aria-expanded="false"><i data-lucide="menu"></i></button>
   </div>
 
   <div id="guided-tour" class="guided-tour-layer hidden" aria-live="polite">
@@ -412,6 +421,7 @@
   <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
   <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
   <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="graph_styles.js"></script>
   <script src="graph_state.js"></script>

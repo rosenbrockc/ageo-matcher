@@ -53,6 +53,10 @@
   var btnDashboard = document.getElementById("btn-dashboard");
   var fileInput = document.getElementById("file-input");
 
+  if (window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons({ attrs: { "aria-hidden": "true" } });
+  }
+
   function getNodeColors(conceptType) {
     var family = CONCEPT_FAMILY[conceptType] || "other";
     return FAMILY_COLORS[family] || FAMILY_COLORS.other;

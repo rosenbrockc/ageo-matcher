@@ -14,6 +14,10 @@ const files = [
   "graph_state.js",
   "graph_styles.js",
   "isomorphism_panel.js",
+  "runner_panel.js",
+  "evolution_workspace.js",
+  "evolution_dag.js",
+  "guided_tour.js",
 ];
 
 files.forEach((file) => {
