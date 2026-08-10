@@ -593,7 +593,7 @@
           });
         });
       });
-      chain.then(function () {
+      return chain.then(function () {
         var activeVersion = options.getActiveEvolutionVersion
           ? options.getActiveEvolutionVersion()
           : versions[versions.length - 1];
@@ -605,7 +605,11 @@
         if (activeRunSpan) activeRunSpan.textContent = activeRunId;
         syncUrl();
         finishExecution(lastResult);
-      }).catch(showExecutionError);
+        return lastResult;
+      }).catch(function (error) {
+        showExecutionError(error);
+        throw error;
+      });
     }
 
     // CDG Runner Endpoint Caller
@@ -623,7 +627,7 @@
       var versions = targetNodeId ? [] : executableVersions();
       var datasetFqn = selectedDatasetFqn(inputs);
       if (versions.length && datasetFqn) {
-        executeEvolution(inputs, versions, datasetFqn);
+        executeEvolution(inputs, versions, datasetFqn).catch(function () {});
         return;
       }
 
@@ -799,6 +803,15 @@
         if (activeRunSpan) activeRunSpan.textContent = activeRunId;
         syncUrl();
         fetchExistingRunNodes();
+      },
+      evaluateVersion: function (version) {
+        var datasetFqn = selectedDatasetFqn(userInputs);
+        if (!hasConfiguredInputs || !datasetFqn) {
+          return Promise.reject(new Error(
+            "Configure catalog evaluation inputs before creating a refinement branch."
+          ));
+        }
+        return executeEvolution(userInputs, [version], datasetFqn);
       },
       hasOutputs: function () { return hasConfiguredInputs; },
       refreshOutputs: fetchExistingRunNodes

@@ -107,6 +107,29 @@ def test_maybe_apply_bottleneck_variant_returns_family_metadata() -> None:
     assert updated["Detect Peaks In Signal"] == "detect_peaks_in_signal"
 
 
+def test_signal_event_rate_family_preserves_fully_qualified_provider_namespace() -> None:
+    prefix = "sciona.atoms.signal_processing.biosppy.ecg"
+    cdg = CDGExport(
+        nodes=[
+            _atomic_node(
+                "n1",
+                "Measure Event Rate",
+                matched_primitive=f"{prefix}.heart_rate_computation",
+            ),
+        ],
+        edges=[],
+    )
+
+    result = maybe_apply_bottleneck_variant(
+        cdg,
+        bottleneck_name="Measure Event Rate",
+    )
+
+    assert result.applied is True
+    assert result.variant_name == f"{prefix}.heart_rate_computation_median_smoothed"
+    assert result.cdg.nodes[0].matched_primitive == result.variant_name
+
+
 def test_maybe_apply_bottleneck_variant_is_noop_without_family_variant() -> None:
     cdg = CDGExport(
         nodes=[

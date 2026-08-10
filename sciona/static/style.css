@@ -137,7 +137,7 @@ body {
 
 .evolution-nav {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  grid-template-columns: 30px minmax(0, 1fr) 30px auto;
   align-items: stretch;
   min-height: 48px;
   border-bottom: 1px solid #eceff1;
@@ -168,6 +168,24 @@ body {
 .evolution-icon-btn:disabled {
   color: #cfd8dc;
   cursor: default;
+}
+
+#btn-evolution-dag {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 104px;
+  margin: 0 8px;
+  padding: 6px 10px;
+  border: 1px solid #90a4ae;
+  border-radius: 4px;
+  background: #fff;
+  color: #37474f;
+  cursor: pointer;
+}
+
+.evolution-tab.is-rejected {
+  opacity: 0.62;
+  text-decoration: line-through;
 }
 
 .evolution-tab {
@@ -1284,6 +1302,37 @@ body {
 
 .iso-modal-btn-primary:hover {
   background: #1565c0;
+}
+
+.iso-modal-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.evolution-dag-modal-content {
+  width: min(960px, 92vw);
+  height: min(720px, 86vh);
+  display: flex;
+  flex-direction: column;
+}
+
+#evolution-dag-canvas {
+  flex: 1 1 auto;
+  min-height: 420px;
+  border: 1px solid #cfd8dc;
+  background: #fafcfd;
+}
+
+#evolution-dag-selection {
+  min-height: 20px;
+  padding-top: 10px;
+  color: #455a64;
+  font-size: 12px;
+}
+
+@media (max-height: 700px) {
+  .evolution-dag-modal-content { height: 92vh; }
+  #evolution-dag-canvas { min-height: 260px; }
 }
 
 /* --- Isomorphisms tab content --- */

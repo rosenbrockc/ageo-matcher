@@ -23,6 +23,7 @@
       <button id="btn-evolution-previous" class="evolution-icon-btn" type="button" title="Previous graph version" aria-label="Previous graph version">&#8249;</button>
       <div id="evolution-tabs" role="tablist" aria-label="Graph versions"></div>
       <button id="btn-evolution-next" class="evolution-icon-btn" type="button" title="Next graph version" aria-label="Next graph version">&#8250;</button>
+      <button id="btn-evolution-dag" type="button">Branch graph</button>
     </div>
     <div class="evolution-transition">
       <strong id="evolution-operation">Catalog match</strong>
@@ -394,6 +395,19 @@
     </div>
   </div>
 
+  <div id="evolution-dag-modal" class="iso-modal hidden" role="dialog" aria-modal="true" aria-labelledby="evolution-dag-title">
+    <div class="iso-modal-backdrop"></div>
+    <div class="iso-modal-content evolution-dag-modal-content">
+      <h4 id="evolution-dag-title">Evolution branch graph</h4>
+      <div id="evolution-dag-canvas" aria-label="Graph of algorithm versions"></div>
+      <div id="evolution-dag-selection" role="status">Select a version to inspect its branch.</div>
+      <div class="iso-modal-actions">
+        <button id="evolution-dag-close" class="iso-modal-btn" type="button">Close</button>
+        <button id="evolution-dag-select" class="iso-modal-btn iso-modal-btn-primary" type="button" disabled>Use as branch point</button>
+      </div>
+    </div>
+  </div>
+
   <!-- CDN scripts -->
   <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
   <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
@@ -408,6 +422,7 @@
   <script src="isomorphism_panel.js"></script>
   <script src="runner_panel.js"></script>
   <script src="evolution_workspace.js"></script>
+  <script src="evolution_dag.js"></script>
   <script src="guided_tour.js"></script>
   <script src="app.js"></script>
 </body>

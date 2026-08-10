@@ -17,6 +17,7 @@ const localVisualizerScripts = [
   "isomorphism_panel.js",
   "runner_panel.js",
   "evolution_workspace.js",
+  "evolution_dag.js",
   "guided_tour.js",
   "app.js",
 ];
@@ -349,6 +350,12 @@ function createVisualizerDocument() {
     "btn-evolution-next",
     "btn-evolution-refine",
     "btn-evolution-reject",
+    "btn-evolution-dag",
+    "evolution-dag-modal",
+    "evolution-dag-canvas",
+    "evolution-dag-selection",
+    "evolution-dag-close",
+    "evolution-dag-select",
     "execution-empty",
     "execution-content",
     "exec-inputs-list",
@@ -705,8 +712,60 @@ test("evolution workspace preserves versions and supports human rejection", () =
 
   document.getElementById("evolution-guidance").value = "This branch amplifies noise";
   document.getElementById("btn-evolution-reject").click();
-  assert.equal(workspace.getTrace().versions.length, 1);
+  assert.equal(workspace.getTrace().versions.length, 2);
+  assert.equal(workspace.getTrace().versions[1].status, "rejected");
   assert.equal(loaded.at(-1), initial);
+});
+
+test("guided refinement creates a child branch without deleting siblings", async () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: true, json: async () => ({}) }));
+  loadScript(context, "evolution_workspace.js");
+  const created = [];
+  const graph = sampleGraphData();
+  const workspace = context.window.initEvolutionWorkspace({
+    loadGraph() {},
+    onRefineRequest(version, note) {
+      assert.equal(version.version_id, "initial-match");
+      assert.equal(note, "Preserve ordering");
+      return Promise.resolve({
+        updated_cdg: JSON.parse(JSON.stringify(graph)),
+        operation: "local_mutation",
+        selection_reason: "deterministic candidate",
+      });
+    },
+    onVersionCreated(version) { created.push(version); },
+  });
+  workspace.start(graph, { label: "Initial match", loss: 4 });
+  document.getElementById("evolution-guidance").value = "Preserve ordering";
+  document.getElementById("btn-evolution-refine").click();
+  await flushAsync();
+
+  assert.equal(workspace.getTrace().versions.length, 2);
+  assert.equal(workspace.getTrace().versions[1].parent_version_id, "initial-match");
+  assert.equal(workspace.getTrace().transitions[0].human_guidance, "Preserve ordering");
+  assert.equal(created.length, 1);
+});
+
+test("evolution DAG elements preserve branch and rejection topology", () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: true, json: async () => ({}) }));
+  loadScript(context, "evolution_dag.js");
+  const elements = context.window.createEvolutionDAGElements({
+    versions: [
+      { version_id: "root", label: "Root", loss: 2, status: "accepted" },
+      { version_id: "left", label: "Left", loss: 1, status: "accepted" },
+      { version_id: "right", label: "Right", loss: 3, status: "rejected" },
+    ],
+    transitions: [
+      { transition_id: "root--left", source_version_id: "root", target_version_id: "left", operation: "expansion" },
+      { transition_id: "root--right", source_version_id: "root", target_version_id: "right", operation: "mutation", status: "rejected" },
+    ],
+  });
+
+  assert.equal(elements.filter((item) => !item.data.source).length, 3);
+  assert.equal(elements.filter((item) => item.data.source).length, 2);
+  assert.equal(elements.find((item) => item.data.id === "right").data.status, "rejected");
 });
 
 test("execution panel ignores stale overlapping refreshes", async () => {

@@ -180,6 +180,13 @@ class ApplyFixRequest(BaseModel):
     rule_name: str
 
 
+class GuidedRefinementRequest(BaseModel):
+    cdg: CDGExport
+    source_version_id: str
+    guidance: str = ""
+    selected_node_id: str = ""
+
+
 def build_dummy_match_results(cdg: CDGExport) -> list[MatchResult]:
     match_results = []
     for node in cdg.nodes:
@@ -337,6 +344,32 @@ async def get_delta_recommendations(body: RecommendationsRequest) -> dict[str, A
             for c in plan.candidates
         ]
     }
+
+
+@router.post("/api/cdg/refine")
+async def refine_cdg(body: GuidedRefinementRequest) -> dict[str, Any]:
+    """Propose a deterministic child graph from a selected evolution version."""
+    from sciona.principal.guided_refinement import propose_guided_refinement
+
+    query = build_delta_planning_query(body.cdg, body.selected_node_id or None)
+    plan = plan_expansion_delta(query, cdg=body.cdg)
+    rule_names = [
+        rule_name
+        for candidate in plan.candidates
+        for rule_name in candidate.operation_rule_names
+    ]
+    try:
+        result = propose_guided_refinement(
+            body.cdg,
+            guidance=body.guidance,
+            selected_node_id=body.selected_node_id,
+            expansion_rule_names=rule_names,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    result["source_version_id"] = body.source_version_id
+    result["guidance"] = body.guidance.strip()
+    return result
 
 
 _REWRITE_RULE_LOGS = {

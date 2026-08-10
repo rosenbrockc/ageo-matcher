@@ -342,6 +342,7 @@
   var isoControls = null;
   var runnerControls = null;
   var evolutionControls = null;
+  var evolutionDAGControls = null;
   var guidedTourControls = null;
   var activeEvolutionRunId = "";
 
@@ -427,6 +428,33 @@
     onVersionSelected: function (version) {
       if (runnerControls && version.run_id) runnerControls.setActiveRunId(version.run_id);
     },
+    onRefineRequest: function (version, note) {
+      return fetch("/api/cdg/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cdg: version.graph,
+          source_version_id: version.version_id,
+          guidance: note || "",
+          selected_node_id: detailControls.getSelectedNodeId() || ""
+        })
+      }).then(function (response) {
+        if (!response.ok) {
+          return response.json().catch(function () { return {}; }).then(function (payload) {
+            throw new Error(payload.detail || "Refinement request failed.");
+          });
+        }
+        return response.json();
+      });
+    },
+    onVersionCreated: function (version) {
+      if (!runnerControls) return;
+      runnerControls.evaluateVersion(version).catch(function (error) {
+        evolutionControls.setGuidanceStatus(
+          error.message || "Candidate evaluation failed."
+        );
+      });
+    },
     onGuidance: function (version, guidance) {
       var statusText = document.getElementById("status-text");
       if (statusText) {
@@ -445,6 +473,15 @@
           })
         }).catch(function () {});
       }
+    }
+  });
+
+  evolutionDAGControls = window.initEvolutionDAG({
+    getTrace: function () { return evolutionControls.getTrace(); },
+    selectVersion: function (versionId) {
+      evolutionControls.selectVersionById(versionId);
+      var statusText = document.getElementById("status-text");
+      if (statusText) statusText.textContent = "Branch point selected: " + versionId;
     }
   });
 

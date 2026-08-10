@@ -29,6 +29,9 @@ _SIGNAL_EVENT_RATE_ALTERNATIVES = {
         "compute_event_rate_median_smoothed",
         "compute_event_rate_smoothed",
     ),
+    "heart_rate_computation": (
+        "heart_rate_computation_median_smoothed",
+    ),
 }
 
 
@@ -40,10 +43,15 @@ def _signal_event_rate_declarations() -> dict[str, tuple[str, str, str]]:
 
 
 def _next_signal_event_rate_variant(primitive_name: str) -> str | None:
-    variants = _SIGNAL_EVENT_RATE_ALTERNATIVES.get(str(primitive_name or "").strip())
+    current = str(primitive_name or "").strip()
+    short_name = current.rsplit(".", 1)[-1]
+    variants = _SIGNAL_EVENT_RATE_ALTERNATIVES.get(short_name)
     if not variants:
         return None
-    return variants[0]
+    variant = variants[0]
+    if "." not in current:
+        return variant
+    return current.rsplit(".", 1)[0] + "." + variant
 
 
 @dataclass(frozen=True)
@@ -85,12 +93,14 @@ class SignalEventRateVariantFamily:
     # jump-removal, or cross-domain atoms) to still match the family for
     # variant swapping on the core nodes.
     def matches(self, cdg: CDGExport) -> bool:
-        anchors = set(_signal_event_rate_declarations())
+        anchors = set(_signal_event_rate_declarations()) | set(
+            _SIGNAL_EVENT_RATE_ALTERNATIVES
+        )
         atomic_nodes = [node for node in cdg.nodes if node.status == NodeStatus.ATOMIC]
         if not atomic_nodes or not anchors:
             return False
         return any(
-            str(node.matched_primitive or "") in anchors
+            str(node.matched_primitive or "").rsplit(".", 1)[-1] in anchors
             for node in atomic_nodes
         )
 

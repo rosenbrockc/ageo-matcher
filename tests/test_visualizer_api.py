@@ -1468,6 +1468,51 @@ class TestVisualizerAPIAdditionalEndpoints:
             assert len(data["candidates"]) == 1
             assert data["candidates"][0]["operation_rule_names"] == ["apply_kfold_ensemble"]
 
+    def test_guided_refinement_endpoint_preserves_branch_provenance(self, client):
+        payload = {
+            "cdg": {
+                "nodes": [
+                    {
+                        "node_id": "n1",
+                        "name": "Node 1",
+                        "description": "test description",
+                        "concept_type": "signal_transform",
+                        "status": "atomic",
+                        "depth": 1,
+                    }
+                ],
+                "edges": [],
+                "metadata": {"goal": "test"},
+            },
+            "source_version_id": "branch-root",
+            "guidance": "reduce sensitivity to outliers",
+            "selected_node_id": "n1",
+        }
+        proposal = {
+            "status": "proposed",
+            "operation": "local_mutation",
+            "updated_cdg": payload["cdg"],
+            "rules_applied": [],
+            "applied_assets": [],
+            "selection_reason": "test",
+            "graph_diff": {},
+            "candidates": [],
+        }
+        with (
+            patch("sciona.visualizer.cdg.plan_expansion_delta") as mock_plan,
+            patch(
+                "sciona.principal.guided_refinement.propose_guided_refinement",
+                return_value=proposal,
+            ) as mock_propose,
+        ):
+            mock_plan.return_value.candidates = ()
+            response = client.post("/api/cdg/refine", json=payload)
+
+        assert response.status_code == 200
+        assert response.json()["source_version_id"] == "branch-root"
+        assert response.json()["guidance"] == "reduce sensitivity to outliers"
+        assert mock_propose.call_args.kwargs["selected_node_id"] == "n1"
+
     def test_apply_fix_endpoint(self, client):
         payload = {
             "cdg": {

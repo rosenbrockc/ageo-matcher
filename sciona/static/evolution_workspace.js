@@ -42,11 +42,34 @@
     var btnReject = document.getElementById("btn-evolution-reject");
     var trace = { versions: [], transitions: [] };
     var activeIndex = -1;
+    var refinementSequence = 0;
 
     function transitionForTarget(versionId) {
       return (trace.transitions || []).find(function (item) {
         return item.target_version_id === versionId;
       }) || null;
+    }
+
+    function parentVersionId(version) {
+      if (version.parent_version_id) return version.parent_version_id;
+      var transition = transitionForTarget(version.version_id);
+      return transition ? transition.source_version_id : "";
+    }
+
+    function activeLineage() {
+      if (activeIndex < 0) return [];
+      var lineage = [];
+      var current = trace.versions[activeIndex];
+      var visited = {};
+      while (current && !visited[current.version_id]) {
+        visited[current.version_id] = true;
+        lineage.unshift(current);
+        var parentId = parentVersionId(current);
+        current = trace.versions.find(function (item) {
+          return item.version_id === parentId;
+        });
+      }
+      return lineage;
     }
 
     function formatLoss(value) {
@@ -77,14 +100,17 @@
 
     function renderTabs() {
       tabs.innerHTML = "";
-      trace.versions.forEach(function (version, index) {
+      var lineage = activeLineage();
+      lineage.forEach(function (version, lineageIndex) {
+        var index = trace.versions.indexOf(version);
         var button = document.createElement("button");
         button.type = "button";
-        button.className = "evolution-tab" + (index === activeIndex ? " active" : "");
+        button.className = "evolution-tab" + (index === activeIndex ? " active" : "") +
+          (version.status === "rejected" ? " is-rejected" : "");
         button.setAttribute("data-version-id", version.version_id);
         var tabIndex = document.createElement("span");
         tabIndex.className = "evolution-tab-index";
-        tabIndex.textContent = String(index + 1);
+        tabIndex.textContent = String(lineageIndex + 1);
         var tabCopy = document.createElement("span");
         tabCopy.className = "evolution-tab-copy";
         var tabLabel = document.createElement("strong");
@@ -97,7 +123,7 @@
         button.appendChild(tabCopy);
         button.addEventListener("click", function () { selectVersion(index); });
         tabs.appendChild(button);
-        if (index < trace.versions.length - 1) {
+        if (lineageIndex < lineage.length - 1) {
           var connector = document.createElement("span");
           connector.className = "evolution-tab-connector";
           connector.textContent = ">";
@@ -113,8 +139,10 @@
       options.loadGraph(version.graph);
       renderTabs();
       renderTransition(version);
-      btnPrevious.disabled = index === 0;
-      btnNext.disabled = index === trace.versions.length - 1;
+      var lineage = activeLineage();
+      var lineageIndex = lineage.indexOf(version);
+      btnPrevious.disabled = lineageIndex <= 0;
+      btnNext.disabled = lineageIndex < 0 || lineageIndex === lineage.length - 1;
       guidanceStatus.textContent = version.guidance_status || "";
       if (options.onVersionSelected) options.onVersionSelected(version);
     }
@@ -126,6 +154,10 @@
       if (!version) return;
       version.loss = asNumber(evaluation && evaluation.loss);
       version.evaluation = evaluation || null;
+      if (version.status === "candidate") version.status = "accepted";
+      version.guidance_status = version.loss == null
+        ? "Evaluation completed without a scalar loss."
+        : "Evaluation complete. Loss " + formatLoss(version.loss) + ".";
       if (runId) version.run_id = runId;
       (trace.transitions || []).forEach(function (item) {
         var source = trace.versions.find(function (candidate) {
@@ -141,12 +173,21 @@
           : null;
       });
       renderTabs();
-      if (activeIndex >= 0) renderTransition(trace.versions[activeIndex]);
+      if (activeIndex >= 0) {
+        renderTransition(trace.versions[activeIndex]);
+        if (trace.versions[activeIndex].version_id === versionId) {
+          guidanceStatus.textContent = version.guidance_status;
+        }
+      }
     }
 
     function loadTrace(nextTrace) {
       trace = nextTrace && Array.isArray(nextTrace.versions) ? nextTrace : { versions: [], transitions: [] };
       if (!trace.transitions) trace.transitions = [];
+      trace.versions.forEach(function (version) {
+        if (!version.parent_version_id) version.parent_version_id = parentVersionId(version);
+        if (!version.status) version.status = "accepted";
+      });
       if (!trace.versions.length) {
         root.classList.add("hidden");
         return;
@@ -185,12 +226,12 @@
         label: meta.label || "Refinement " + trace.versions.length,
         phase: meta.phase || "refinement",
         loss: asNumber(meta.loss),
+        parent_version_id: source.version_id,
+        status: meta.status || "candidate",
+        guidance: meta.human_guidance ? { action: "refine", note: meta.human_guidance } : null,
         graph: graph
       };
-      trace.versions = trace.versions.slice(0, activeIndex + 1).concat([next]);
-      trace.transitions = trace.transitions.filter(function (item) {
-        return trace.versions.some(function (version) { return version.version_id === item.target_version_id; });
-      });
+      trace.versions.push(next);
       trace.transitions.push({
         transition_id: source.version_id + "--" + versionId,
         source_version_id: source.version_id,
@@ -203,11 +244,41 @@
         rules_applied: meta.rules_applied || [],
         selection_reason: meta.selection_reason || "",
         graph_diff: graphDiff(source.graph, graph),
-        human_guidance: guidance.value.trim()
+        human_guidance: meta.human_guidance || guidance.value.trim()
       });
       guidance.value = "";
       activeIndex = trace.versions.length - 1;
       selectVersion(activeIndex);
+      if (options.onVersionCreated) options.onVersionCreated(next);
+      return next;
+    }
+
+    function requestRefinement() {
+      if (activeIndex < 0 || !options.onRefineRequest) return;
+      var source = trace.versions[activeIndex];
+      var note = guidance.value.trim();
+      btnRefine.disabled = true;
+      guidanceStatus.textContent = "Generating a deterministic proposal...";
+      Promise.resolve(options.onRefineRequest(source, note)).then(function (proposal) {
+        refinementSequence += 1;
+        var next = recordTransition(proposal.updated_cdg, {
+          version_id: proposal.version_id || source.version_id + "-branch-" + refinementSequence,
+          label: proposal.label || "Guided refinement " + refinementSequence,
+          phase: "refinement",
+          operation: proposal.operation || "human_guided_refinement",
+          rules_applied: proposal.rules_applied || [],
+          selection_reason: proposal.selection_reason || "",
+          human_guidance: note,
+          status: "candidate"
+        });
+        next.proposal_candidates = proposal.candidates || [];
+        guidance.value = "";
+        guidanceStatus.textContent = "Candidate created and queued for evaluation.";
+      }).catch(function (error) {
+        guidanceStatus.textContent = error.message || "Refinement request failed.";
+      }).finally(function () {
+        btnRefine.disabled = false;
+      });
     }
 
     function recordGuidance(action) {
@@ -216,23 +287,35 @@
       var note = guidance.value.trim();
       version.guidance = { action: action, note: note };
       version.guidance_status = action === "reject"
-        ? "Direction rejected. Returned to its parent graph."
+        ? "Version rejected. Returned to its parent graph."
         : "Guidance recorded on this graph.";
       guidanceStatus.textContent = version.guidance_status;
       if (action === "reject" && activeIndex > 0) {
-        var branchIndex = activeIndex - 1;
-        trace.versions = trace.versions.slice(0, activeIndex);
-        trace.transitions = trace.transitions.filter(function (item) {
-          return trace.versions.some(function (candidate) { return candidate.version_id === item.target_version_id; });
+        version.status = "rejected";
+        var transition = transitionForTarget(version.version_id);
+        if (transition) transition.status = "rejected";
+        var parentId = parentVersionId(version);
+        var branchIndex = trace.versions.findIndex(function (candidate) {
+          return candidate.version_id === parentId;
         });
-        selectVersion(branchIndex);
+        if (branchIndex >= 0) selectVersion(branchIndex);
       }
       if (options.onGuidance) options.onGuidance(version, version.guidance);
     }
 
-    btnPrevious.addEventListener("click", function () { selectVersion(activeIndex - 1); });
-    btnNext.addEventListener("click", function () { selectVersion(activeIndex + 1); });
-    btnRefine.addEventListener("click", function () { recordGuidance("refine"); });
+    btnPrevious.addEventListener("click", function () {
+      var lineage = activeLineage();
+      var position = lineage.indexOf(trace.versions[activeIndex]);
+      if (position > 0) selectVersion(trace.versions.indexOf(lineage[position - 1]));
+    });
+    btnNext.addEventListener("click", function () {
+      var lineage = activeLineage();
+      var position = lineage.indexOf(trace.versions[activeIndex]);
+      if (position >= 0 && position < lineage.length - 1) {
+        selectVersion(trace.versions.indexOf(lineage[position + 1]));
+      }
+    });
+    btnRefine.addEventListener("click", requestRefinement);
     btnReject.addEventListener("click", function () { recordGuidance("reject"); });
 
     return {
@@ -240,6 +323,15 @@
       start: start,
       recordTransition: recordTransition,
       setVersionEvaluation: setVersionEvaluation,
+      selectVersionById: function (versionId) {
+        var index = trace.versions.findIndex(function (version) {
+          return version.version_id === versionId;
+        });
+        if (index >= 0) selectVersion(index);
+      },
+      setGuidanceStatus: function (message) {
+        guidanceStatus.textContent = message || "";
+      },
       getTrace: function () { return trace; },
       getActiveVersion: function () { return activeIndex >= 0 ? trace.versions[activeIndex] : null; }
     };
