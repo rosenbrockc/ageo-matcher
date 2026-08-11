@@ -2169,6 +2169,57 @@ body {
   font-family: monospace;
 }
 
+.history-session.expanded {
+  background: #f5f7f8;
+  border-color: #90a4ae;
+}
+
+.history-version-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #cfd8dc;
+}
+
+.history-version-list.hidden {
+  display: none;
+}
+
+.history-version-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #263238;
+  text-align: left;
+}
+
+.history-version-row:hover {
+  background: #e8edef;
+}
+
+.history-version-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.history-version-meta {
+  flex: 0 0 auto;
+  color: #607d8b;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 /* Tutorial elements */
 .tutorial-pane {
   display: flex;

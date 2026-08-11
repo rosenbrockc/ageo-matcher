@@ -579,7 +579,12 @@
           runModalExecute.textContent = "Evaluating " + (index + 1) + " of " + versions.length + "...";
           return fetchJson(
             "/api/cdg/run?repo=" + encodeURIComponent(currentRepo) + "&run_id=" + encodeURIComponent(runId),
-            { inputs: inputs, cdg: version.graph }
+            {
+              inputs: inputs,
+              cdg: version.graph,
+              execution_id: baseRunId,
+              version_id: version.version_id
+            }
           ).then(function (runResult) {
             lastResult = runResult;
             return fetchJson(
@@ -634,8 +639,67 @@
       fetchJson(
         "/api/cdg/run?repo=" + encodeURIComponent(currentRepo) + "&run_id=" + encodeURIComponent(activeRunId) +
           (targetNodeId ? "&target_node_id=" + encodeURIComponent(targetNodeId) : ""),
-        { inputs: inputs, cdg: options.getCurrentData() }
+        { inputs: inputs, cdg: options.getCurrentData(), execution_id: activeRunId }
       ).then(finishExecution).catch(showExecutionError);
+    }
+
+    function historyExecutionId(run) {
+      if (run.execution_id) return String(run.execution_id);
+      if (run.version_id) {
+        var suffix = "--" + String(run.version_id).replace(/[^a-zA-Z0-9_-]/g, "-");
+        if (String(run.run_id || "").endsWith(suffix)) {
+          return String(run.run_id).slice(0, -suffix.length);
+        }
+      }
+      return String(run.run_id || "");
+    }
+
+    function groupedHistoryRuns(runs) {
+      var groups = {};
+      (runs || []).forEach(function (run) {
+        var executionId = historyExecutionId(run);
+        if (!groups[executionId]) groups[executionId] = [];
+        groups[executionId].push(run);
+      });
+      return Object.keys(groups).map(function (executionId) {
+        var versions = groups[executionId].slice().sort(function (left, right) {
+          return Number(right.timestamp || 0) - Number(left.timestamp || 0);
+        });
+        return {
+          execution_id: executionId,
+          timestamp: Number(versions[0].timestamp || 0),
+          versions: versions
+        };
+      }).sort(function (left, right) { return right.timestamp - left.timestamp; });
+    }
+
+    function loadHistoricalRun(run, item) {
+      item.classList.add("loading");
+      fetch("/api/cdg/runs/" + encodeURIComponent(run.run_id))
+        .then(function (res) {
+          if (!res.ok) {
+            return res.json().catch(function () { return {}; }).then(function (payload) {
+              throw new Error(payload.detail || "Unable to load run");
+            });
+          }
+          return res.json();
+        })
+        .then(function (snapshot) {
+          activeRunId = run.run_id;
+          if (activeRunSpan) activeRunSpan.textContent = activeRunId;
+          syncUrl();
+          runHistoryBrowser.classList.remove("visible");
+          hasConfiguredInputs = true;
+          if (btnNewInputs) btnNewInputs.classList.remove("hidden");
+
+          if (options.onHistoricalRunLoaded) options.onHistoricalRunLoaded(snapshot);
+          if (snapshot.trace) decorateNodeStatuses(snapshot.trace);
+          fetchExistingRunNodes();
+        })
+        .catch(function (error) {
+          item.classList.remove("loading");
+          historyList.innerHTML = '<div class="lineage-hint" style="color: #ff5252;">Failed to load run: ' + error.message + '</div>';
+        });
     }
 
     // History Panel List Fetcher
@@ -653,13 +717,21 @@
             return;
           }
 
-          data.runs.forEach(function (run) {
+          groupedHistoryRuns(data.runs).forEach(function (session) {
+            var versions = session.versions;
+            var latest = versions[0];
             var item = document.createElement("div");
-            item.className = "history-item";
+            item.className = "history-item history-session";
             
-            var date = new Date(run.timestamp * 1000).toLocaleString();
-            var shortId = run.run_id.substring(0, 8) + "...";
-            var statusClass = "history-status-" + (run.status || "running");
+            var date = new Date(session.timestamp * 1000).toLocaleString();
+            var shortId = session.execution_id.substring(0, 8) + "...";
+            var status = versions.some(function (run) { return run.status === "failed"; })
+              ? "failed"
+              : versions.some(function (run) { return run.status === "running"; }) ? "running" : "completed";
+            var statusClass = "history-status-" + status;
+            var versionLabel = versions.length === 1
+              ? (latest.version_id || (latest.target_node_id ? "Target: " + latest.target_node_id : "Full Run"))
+              : versions.length + " evaluated versions";
 
             item.innerHTML = 
               '<div class="history-item-header">' +
@@ -667,38 +739,40 @@
                 '<span class="history-item-time">' + date + '</span>' +
               '</div>' +
               '<div class="history-item-footer">' +
-                '<span class="history-item-status ' + statusClass + '">' + (run.status || "running") + '</span>' +
-                (run.target_node_id ? '<span class="history-item-target">Target: ' + run.target_node_id + '</span>' : '<span class="history-item-target">Full Run</span>') +
+                '<span class="history-item-status ' + statusClass + '">' + status + '</span>' +
+                '<span class="history-item-target">' + versionLabel + '</span>' +
               '</div>';
 
-            item.addEventListener("click", function () {
-              item.classList.add("loading");
-              fetch("/api/cdg/runs/" + encodeURIComponent(run.run_id))
-                .then(function (res) {
-                  if (!res.ok) {
-                    return res.json().catch(function () { return {}; }).then(function (payload) {
-                      throw new Error(payload.detail || "Unable to load run");
-                    });
-                  }
-                  return res.json();
-                })
-                .then(function (snapshot) {
-                  activeRunId = run.run_id;
-                  if (activeRunSpan) activeRunSpan.textContent = activeRunId;
-                  syncUrl();
-                  runHistoryBrowser.classList.remove("visible");
-                  hasConfiguredInputs = true;
-                  if (btnNewInputs) btnNewInputs.classList.remove("hidden");
-
-                  if (options.onHistoricalRunLoaded) options.onHistoricalRunLoaded(snapshot);
-                  if (snapshot.trace) decorateNodeStatuses(snapshot.trace);
-                  fetchExistingRunNodes();
-                })
-                .catch(function (error) {
-                  item.classList.remove("loading");
-                  historyList.innerHTML = '<div class="lineage-hint" style="color: #ff5252;">Failed to load run: ' + error.message + '</div>';
+            if (versions.length === 1) {
+              item.addEventListener("click", function () { loadHistoricalRun(latest, item); });
+            } else {
+              var versionList = document.createElement("div");
+              versionList.className = "history-version-list hidden";
+              versions.forEach(function (run) {
+                var versionRow = document.createElement("button");
+                versionRow.type = "button";
+                versionRow.className = "history-version-row";
+                var loss = run.loss == null ? "Loss pending" : "Loss " + Number(run.loss).toFixed(4);
+                versionRow.innerHTML =
+                  '<span class="history-version-name">' + (run.version_id || run.run_id) + '</span>' +
+                  '<span class="history-version-meta">' + loss + ' · ' + (run.status || "running") + '</span>';
+                versionRow.addEventListener("click", function (event) {
+                  if (event.stopPropagation) event.stopPropagation();
+                  loadHistoricalRun(run, versionRow);
                 });
-            });
+                versionList.appendChild(versionRow);
+              });
+              item.appendChild(versionList);
+              item.addEventListener("click", function (event) {
+                var target = event.target;
+                while (target && target !== item) {
+                  if (target.classList && target.classList.contains("history-version-row")) return;
+                  target = target.parentNode;
+                }
+                versionList.classList.toggle("hidden");
+                item.classList.toggle("expanded", !versionList.classList.contains("hidden"));
+              });
+            }
 
             historyList.appendChild(item);
           });

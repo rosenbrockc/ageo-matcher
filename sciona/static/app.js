@@ -481,6 +481,7 @@
         body: JSON.stringify({
           cdg: version.graph,
           source_version_id: version.version_id,
+          run_id: runnerControls ? runnerControls.getActiveRunId() : "",
           guidance: note || "",
           selected_node_id: detailControls.getSelectedNodeId() || ""
         })
@@ -508,14 +509,16 @@
           ? "Branch reset to " + version.label
           : "Guidance recorded on " + version.label;
       }
-      if (activeEvolutionRunId) {
-        fetch("/api/dashboard/runs/" + encodeURIComponent(activeEvolutionRunId) + "/guidance", {
+      var guidanceRunId = version.run_id || activeEvolutionRunId;
+      if (guidanceRunId) {
+        fetch("/api/dashboard/runs/" + encodeURIComponent(guidanceRunId) + "/guidance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             version_id: version.version_id,
             action: guidance.action,
-            note: guidance.note || ""
+            note: guidance.note || "",
+            node_id: detailControls.getSelectedNodeId() || ""
           })
         }).catch(function () {});
       }

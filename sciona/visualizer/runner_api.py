@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from pathlib import Path
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
@@ -32,6 +30,8 @@ router = APIRouter()
 class RunCDGRequest(BaseModel):
     inputs: Dict[str, Any]
     cdg: CDGExport | None = None
+    execution_id: str = ""
+    version_id: str = ""
 
 
 class EvaluateRunRequest(BaseModel):
@@ -91,20 +91,86 @@ async def run_cdg(
     run_id: str = Query(..., description="Unique run identifier"),
     target_node_id: Optional[str] = Query(None, description="Optional target node ID for incremental execution"),
 ):
+    from sciona.telemetry import finish_run, log_event, start_run, update_stage
+
     driver = request.app.state.driver
     session = CDGExecutionSession(driver, repo, run_id)
+    graph_metadata = dict(body.cdg.metadata) if body.cdg is not None else {}
+    goal = str(graph_metadata.get("goal", ""))
+    node_count = len(body.cdg.nodes) if body.cdg is not None else 0
+    start_run(
+        "cdg_execution",
+        run_id=run_id,
+        label=goal or repo,
+        metadata={
+            "goal": goal,
+            "repo": repo,
+            "execution_mode": "deterministic",
+            "execution_path": "visualizer_cdg",
+            "target_node_id": target_node_id,
+            "execution_id": body.execution_id,
+            "version_id": body.version_id,
+        },
+    )
+    update_stage(
+        run_id=run_id,
+        stage="execute_cdg",
+        status="running",
+        message="Executing deterministic graph",
+        total=node_count,
+    )
+    log_event(
+        "executor",
+        "execution",
+        "CDG_EXECUTION_STARTED",
+        run_id=run_id,
+        stage="execute_cdg",
+        payload={"repo": repo, "target_node_id": target_node_id, "node_count": node_count},
+    )
     
     try:
         result = await session.execute(
             body.inputs,
             target_node_id=target_node_id,
             cdg=body.cdg,
+            execution_id=body.execution_id,
+            version_id=body.version_id,
         )
+        completed = len(result.get("trace", []))
+        update_stage(
+            run_id=run_id,
+            stage="execute_cdg",
+            status="completed",
+            message="Deterministic graph execution completed",
+            completed=completed,
+            total=node_count or completed,
+        )
+        log_event(
+            "executor",
+            "execution",
+            "CDG_EXECUTION_COMPLETED",
+            run_id=run_id,
+            stage="execute_cdg",
+            payload={"repo": repo, "executed_nodes": completed},
+        )
+        finish_run(run_id, status="completed")
         return result
     except ValueError as e:
+        update_stage(run_id=run_id, stage="execute_cdg", status="failed", message=str(e))
+        log_event(
+            "executor", "execution", "CDG_EXECUTION_FAILED",
+            run_id=run_id, stage="execute_cdg", payload={"error": str(e)},
+        )
+        finish_run(run_id, status="failed", error=str(e))
         # Grounding error
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        update_stage(run_id=run_id, stage="execute_cdg", status="failed", message=str(e))
+        log_event(
+            "executor", "execution", "CDG_EXECUTION_FAILED",
+            run_id=run_id, stage="execute_cdg", payload={"error": str(e)},
+        )
+        finish_run(run_id, status="failed", error=str(e))
         logger.exception("Error executing CDG")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -113,6 +179,27 @@ async def run_cdg(
 async def evaluate_cdg_run(run_id: str, body: EvaluateRunRequest):
     """Score persisted graph outputs using the selected dataset's catalog contract."""
     from sciona.visualizer.dataset_manager import DatasetManager
+    from sciona.telemetry import log_event, merge_run_metadata, update_stage
+
+    started_at = time.perf_counter()
+    update_stage(
+        run_id=run_id,
+        stage="evaluate_cdg",
+        status="running",
+        message="Evaluating persisted graph outputs",
+        total=1,
+    )
+    log_event(
+        "evaluator",
+        "evaluation",
+        "CDG_EVALUATION_STARTED",
+        run_id=run_id,
+        stage="evaluate_cdg",
+        payload={
+            "dataset_fqn": body.dataset_fqn,
+            "version_id": body.version_id,
+        },
+    )
 
     try:
         manifest = await run_in_threadpool(
@@ -135,14 +222,70 @@ async def evaluate_cdg_run(run_id: str, body: EvaluateRunRequest):
             metadata["version_id"] = result["version_id"]
             metadata["loss"] = result["loss"]
             meta_file.write_text(json.dumps(metadata))
+        merge_run_metadata({"evaluation": result}, run_id=run_id)
+        update_stage(
+            run_id=run_id,
+            stage="evaluate_cdg",
+            status="completed",
+            message="Evaluation completed",
+            completed=1,
+            total=1,
+        )
+        log_event(
+            "evaluator",
+            "evaluation",
+            "CDG_EVALUATION_COMPLETED",
+            run_id=run_id,
+            stage="evaluate_cdg",
+            duration_ms=(time.perf_counter() - started_at) * 1000.0,
+            payload={
+                "dataset_fqn": result["dataset_fqn"],
+                "version_id": result["version_id"],
+                "objective": result["objective"],
+                "loss": result["loss"],
+            },
+        )
         return result
     except LookupError as exc:
+        _record_evaluation_failure(run_id, body, exc, started_at)
         raise HTTPException(status_code=404, detail=str(exc))
     except (KeyError, TypeError, ValueError, IndexError) as exc:
+        _record_evaluation_failure(run_id, body, exc, started_at)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        _record_evaluation_failure(run_id, body, exc, started_at)
         logger.exception("Failed to evaluate CDG run")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+def _record_evaluation_failure(
+    run_id: str,
+    body: EvaluateRunRequest,
+    error: Exception,
+    started_at: float,
+) -> None:
+    from sciona.telemetry import log_event, update_stage
+
+    update_stage(
+        run_id=run_id,
+        stage="evaluate_cdg",
+        status="failed",
+        message=str(error),
+    )
+    log_event(
+        "evaluator",
+        "evaluation",
+        "CDG_EVALUATION_FAILED",
+        run_id=run_id,
+        stage="evaluate_cdg",
+        duration_ms=(time.perf_counter() - started_at) * 1000.0,
+        payload={
+            "dataset_fqn": body.dataset_fqn,
+            "version_id": body.version_id,
+            "error": str(error),
+            "error_type": type(error).__name__,
+        },
+    )
 
 
 @router.get("/api/cdg/runs")

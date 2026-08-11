@@ -62,8 +62,10 @@ class TestRunEvaluation:
     def test_scores_persisted_outputs_from_dataset_catalog_contract(
         self, client, monkeypatch, tmp_path
     ):
+        from sciona.telemetry import get_event_log, reset_telemetry_runtime
         from sciona.visualizer import runner_api
 
+        reset_telemetry_runtime()
         node_dir = tmp_path / "run-1" / "measure"
         node_dir.mkdir(parents=True)
         np.save(node_dir / "out_indices.npy", np.array([10.0, 20.0, 30.0]))
@@ -109,8 +111,18 @@ class TestRunEvaluation:
         assert payload["metrics"]["n_eval_samples"] == 3
         persisted = json.loads((tmp_path / "run-1" / "evaluation.json").read_text())
         assert persisted == payload
+        events = get_event_log().events_for_run("run-1")
+        assert [event.event_type for event in events] == [
+            "CDG_EVALUATION_STARTED",
+            "CDG_EVALUATION_COMPLETED",
+        ]
+        assert events[-1].payload["loss"] == pytest.approx(2 / 3)
+        reset_telemetry_runtime()
 
     def test_requires_evaluation_metadata(self, client):
+        from sciona.telemetry import get_event_log, reset_telemetry_runtime
+
+        reset_telemetry_runtime()
         with patch(
             "sciona.visualizer.dataset_manager.DatasetManager.load_manifest",
             return_value={"fqn": "sciona.data.unscored", "evaluation": {}},
@@ -122,6 +134,10 @@ class TestRunEvaluation:
 
         assert response.status_code == 422
         assert "does not define catalog evaluation metadata" in response.json()["detail"]
+        assert [
+            event.event_type for event in get_event_log().events_for_run("run-1")
+        ] == ["CDG_EVALUATION_STARTED", "CDG_EVALUATION_FAILED"]
+        reset_telemetry_runtime()
 
 
 def _make_result(records):
@@ -338,6 +354,38 @@ class TestStaticFiles:
 
 
 class TestDashboardAPI:
+    def test_postgres_and_file_runs_are_merged(self, client, monkeypatch, tmp_path):
+        from sciona.telemetry import reset_telemetry_runtime
+        from sciona.visualizer import dashboard, runner
+
+        reset_telemetry_runtime()
+        telemetry_dir = tmp_path / "telemetry"
+        telemetry_dir.mkdir()
+        (telemetry_dir / "run_file-run.json").write_text(json.dumps({
+            "run_id": "file-run",
+            "pipeline": "algorithm_creation",
+            "status": "completed",
+            "started_at": 10.0,
+            "ended_at": 11.0,
+            "last_update_at": 11.0,
+            "metadata": {},
+            "stages": {},
+        }))
+        cdg_dir = tmp_path / "cdg-runs"
+        cdg_dir.mkdir()
+        monkeypatch.setenv("SCIONA_TELEMETRY_RUNS_DIR", str(telemetry_dir))
+        monkeypatch.setattr(runner, "RUNS_DIR", cdg_dir)
+        monkeypatch.setattr(
+            dashboard,
+            "load_runs_from_store",
+            AsyncMock(return_value=[]),
+        )
+
+        response = client.get("/api/dashboard/runs")
+
+        assert response.status_code == 200
+        assert [row["run_id"] for row in response.json()["runs"]] == ["file-run"]
+
     def test_list_runs_and_latest(self, client, monkeypatch, tmp_path):
         from sciona.telemetry import reset_telemetry_runtime
 
@@ -1471,6 +1519,10 @@ class TestVisualizerAPIAdditionalEndpoints:
             assert data["candidates"][0]["operation_rule_names"] == ["apply_kfold_ensemble"]
 
     def test_guided_refinement_endpoint_preserves_branch_provenance(self, client):
+        from sciona.telemetry import get_event_log, reset_telemetry_runtime, start_run
+
+        reset_telemetry_runtime()
+        start_run("cdg_execution", run_id="refinement-run")
         payload = {
             "cdg": {
                 "nodes": [
@@ -1487,6 +1539,7 @@ class TestVisualizerAPIAdditionalEndpoints:
                 "metadata": {"goal": "test"},
             },
             "source_version_id": "branch-root",
+            "run_id": "refinement-run",
             "guidance": "reduce sensitivity to outliers",
             "selected_node_id": "n1",
         }
@@ -1514,6 +1567,13 @@ class TestVisualizerAPIAdditionalEndpoints:
         assert response.json()["source_version_id"] == "branch-root"
         assert response.json()["guidance"] == "reduce sensitivity to outliers"
         assert mock_propose.call_args.kwargs["selected_node_id"] == "n1"
+        events = get_event_log().events_for_run("refinement-run")
+        assert [event.event_type for event in events] == [
+            "CDG_REFINEMENT_REQUESTED",
+            "CDG_REFINEMENT_COMPLETED",
+        ]
+        assert events[-1].node_id == "n1"
+        reset_telemetry_runtime()
 
     def test_apply_fix_endpoint(self, client):
         payload = {

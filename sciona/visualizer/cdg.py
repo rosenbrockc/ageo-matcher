@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
+
+from sciona.architect.handoff import CDGExport
+from sciona.architect.models import NodeStatus
+from sciona.principal.expansion_delta_planner import DeltaPlanningQuery, plan_expansion_delta
+from sciona.synthesizer.ghost_sim import run_ghost_simulation
+from sciona.types import CandidateMatch, Declaration, MatchResult, PDGNode, Prover, VerificationResult
 
 router = APIRouter()
 
@@ -161,15 +170,6 @@ async def get_cdg_by_path(request: Request, repo: str) -> dict[str, Any]:
     return await _load_cdg(request, repo)
 
 
-import re
-from pydantic import BaseModel
-from sciona.architect.handoff import CDGExport
-from sciona.architect.models import NodeStatus
-from sciona.types import MatchResult, VerificationResult, CandidateMatch, Declaration, PDGNode, Prover
-from sciona.synthesizer.ghost_sim import run_ghost_simulation
-from sciona.principal.expansion_delta_planner import plan_expansion_delta, DeltaPlanningQuery
-
-
 class RecommendationsRequest(BaseModel):
     cdg: CDGExport
     selected_node_id: str | None = None
@@ -183,6 +183,7 @@ class ApplyFixRequest(BaseModel):
 class GuidedRefinementRequest(BaseModel):
     cdg: CDGExport
     source_version_id: str
+    run_id: str = ""
     guidance: str = ""
     selected_node_id: str = ""
 
@@ -350,15 +351,31 @@ async def get_delta_recommendations(body: RecommendationsRequest) -> dict[str, A
 async def refine_cdg(body: GuidedRefinementRequest) -> dict[str, Any]:
     """Propose a deterministic child graph from a selected evolution version."""
     from sciona.principal.guided_refinement import propose_guided_refinement
+    from sciona.telemetry import log_event
 
-    query = build_delta_planning_query(body.cdg, body.selected_node_id or None)
-    plan = plan_expansion_delta(query, cdg=body.cdg)
-    rule_names = [
-        rule_name
-        for candidate in plan.candidates
-        for rule_name in candidate.operation_rule_names
-    ]
+    started_at = time.perf_counter()
+    event_payload = {
+        "source_version_id": body.source_version_id,
+        "guidance": body.guidance.strip(),
+    }
+    if body.run_id:
+        log_event(
+            "principal",
+            "refinement",
+            "CDG_REFINEMENT_REQUESTED",
+            run_id=body.run_id,
+            stage="refine_cdg",
+            node_id=body.selected_node_id,
+            payload=event_payload,
+        )
     try:
+        query = build_delta_planning_query(body.cdg, body.selected_node_id or None)
+        plan = plan_expansion_delta(query, cdg=body.cdg)
+        rule_names = [
+            rule_name
+            for candidate in plan.candidates
+            for rule_name in candidate.operation_rule_names
+        ]
         result = propose_guided_refinement(
             body.cdg,
             guidance=body.guidance,
@@ -366,9 +383,49 @@ async def refine_cdg(body: GuidedRefinementRequest) -> dict[str, Any]:
             expansion_rule_names=rule_names,
         )
     except LookupError as exc:
+        if body.run_id:
+            log_event(
+                "principal",
+                "refinement",
+                "CDG_REFINEMENT_FAILED",
+                run_id=body.run_id,
+                stage="refine_cdg",
+                node_id=body.selected_node_id,
+                duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                payload={**event_payload, "error": str(exc), "error_type": type(exc).__name__},
+            )
         raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        if body.run_id:
+            log_event(
+                "principal",
+                "refinement",
+                "CDG_REFINEMENT_FAILED",
+                run_id=body.run_id,
+                stage="refine_cdg",
+                node_id=body.selected_node_id,
+                duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                payload={**event_payload, "error": str(exc), "error_type": type(exc).__name__},
+            )
+        raise
     result["source_version_id"] = body.source_version_id
     result["guidance"] = body.guidance.strip()
+    if body.run_id:
+        log_event(
+            "principal",
+            "refinement",
+            "CDG_REFINEMENT_COMPLETED",
+            run_id=body.run_id,
+            stage="refine_cdg",
+            node_id=body.selected_node_id,
+            duration_ms=(time.perf_counter() - started_at) * 1000.0,
+            payload={
+                **event_payload,
+                "operation": result.get("operation", ""),
+                "rules_applied": result.get("rules_applied", []),
+                "candidate_count": len(result.get("candidates", [])),
+            },
+        )
     return result
 
 

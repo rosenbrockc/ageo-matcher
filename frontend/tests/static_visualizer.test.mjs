@@ -1130,6 +1130,84 @@ test("history selection restores the persisted run snapshot", async () => {
   assert.equal(fetchCalls.some((call) => call.url === `/api/cdg/runs/${snapshot.run_id}`), true);
 });
 
+test("history groups version evaluations under one execution session", async () => {
+  const document = createVisualizerDocument();
+  const graph = sampleGraphData();
+  const runs = [
+    {
+      run_id: "execution-123--refined",
+      execution_id: "execution-123",
+      version_id: "refined",
+      repo: "ageo/demo",
+      timestamp: 1001,
+      status: "completed",
+      loss: 0.1,
+    },
+    {
+      run_id: "execution-123--expanded",
+      execution_id: "execution-123",
+      version_id: "expanded",
+      repo: "ageo/demo",
+      timestamp: 1000,
+      status: "completed",
+      loss: 0.2,
+    },
+  ];
+  const { context } = createBrowserContext(document, (url) => {
+    if (url === "/api/cdg/runs?repo=ageo%2Fdemo") {
+      return Promise.resolve({ ok: true, json: async () => ({ runs }) });
+    }
+    const run = runs.find((candidate) => url === `/api/cdg/runs/${candidate.run_id}`);
+    if (run) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          run_id: run.run_id,
+          metadata: run,
+          cdg: graph,
+          trace: [],
+          evaluation: { version_id: run.version_id, loss: run.loss },
+          replayable: true,
+        }),
+      });
+    }
+    if (url.endsWith("/existing")) {
+      return Promise.resolve({ ok: true, json: async () => ({ nodes: [] }) });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+  });
+  loadScript(context, "runner_panel.js");
+  let restored = null;
+  const runner = context.window.initVisualizerRunner({
+    getCy() { return createCytoscapeStub(); },
+    getCurrentData() { return graph; },
+    detailControls: {
+      refreshExecutionTab() {},
+      getSelectedNodeId() { return null; },
+    },
+    onHistoricalRunLoaded(value) { restored = value; },
+  });
+
+  runner.setRepo("ageo/demo");
+  document.getElementById("btn-history").click();
+  await flushAsync();
+
+  const historyList = document.getElementById("history-list");
+  assert.equal(historyList.children.length, 1);
+  const session = historyList.children[0];
+  const versionList = session.querySelector(".history-version-list");
+  assert.equal(versionList.children.length, 2);
+  assert.equal(versionList.classList.contains("hidden"), true);
+
+  session.click();
+  assert.equal(versionList.classList.contains("hidden"), false);
+  versionList.children[0].click();
+  await flushAsync();
+
+  assert.equal(restored.run_id, "execution-123--refined");
+  assert.equal(runner.getActiveRunId(), "execution-123--refined");
+});
+
 test("guided tour advances through workflow steps and finishes cleanly", () => {
   const document = createVisualizerDocument();
   const { context } = createBrowserContext(document, () => Promise.resolve({ ok: false }));

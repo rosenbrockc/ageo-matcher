@@ -20,6 +20,9 @@ async def lifespan(app: FastAPI):
     from sciona.config import AgeomConfig
 
     config = AgeomConfig()
+    from sciona.telemetry import configure_dashboard_output
+
+    configure_dashboard_output(config.telemetry_runs_dir)
     auth = (config.memgraph_user, config.memgraph_password) if config.memgraph_user else None
     driver = AsyncGraphDatabase.driver(config.memgraph_uri, auth=auth)
     app.state.driver = driver

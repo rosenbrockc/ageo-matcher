@@ -7,10 +7,10 @@ import json
 import queue
 import time
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -32,6 +32,91 @@ class HumanGuidanceRequest(BaseModel):
     node_id: str = ""
 
 
+def _load_cdg_execution_runs(limit: int) -> list[dict[str, Any]]:
+    """Adapt persisted visualizer executions to the dashboard run contract."""
+    from sciona.visualizer import runner
+
+    rows: list[dict[str, Any]] = []
+    runs_dir = Path(runner.RUNS_DIR)
+    if not runs_dir.exists():
+        return rows
+    for run_dir in runs_dir.iterdir():
+        metadata_path = run_dir / "run_metadata.json"
+        if not run_dir.is_dir() or not metadata_path.exists():
+            continue
+        try:
+            run_metadata = json.loads(metadata_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(run_metadata, dict) or not run_metadata.get("run_id"):
+            continue
+        graph: dict[str, Any] = {}
+        evaluation: dict[str, Any] = {}
+        for path, target in (
+            (run_dir / "cdg.json", graph),
+            (run_dir / "evaluation.json", evaluation),
+        ):
+            if not path.exists():
+                continue
+            try:
+                loaded = json.loads(path.read_text())
+                if isinstance(loaded, dict):
+                    target.update(loaded)
+            except (OSError, json.JSONDecodeError):
+                pass
+        timestamp = float(run_metadata.get("timestamp", 0.0) or 0.0)
+        status = str(run_metadata.get("status", "completed"))
+        repo = str(run_metadata.get("repo", ""))
+        goal = str((graph.get("metadata") or {}).get("goal", ""))
+        error = str(run_metadata.get("error", ""))
+        stage = {
+            "name": "execute_cdg",
+            "status": status,
+            "started_at": timestamp,
+            "ended_at": timestamp if status in {"completed", "failed"} else None,
+            "last_heartbeat_at": timestamp,
+            "message": error or "Persisted visualizer execution",
+            "completed": len(graph.get("nodes", [])) if status == "completed" else 0,
+            "total": len(graph.get("nodes", [])),
+        }
+        rows.append({
+            "run_id": str(run_metadata["run_id"]),
+            "pipeline": "cdg_execution",
+            "label": goal or repo,
+            "status": status,
+            "started_at": timestamp,
+            "ended_at": timestamp if status in {"completed", "failed"} else None,
+            "last_update_at": timestamp,
+            "metadata": {
+                "goal": goal,
+                "repo": repo,
+                "execution_mode": "deterministic",
+                "execution_path": "visualizer_cdg",
+                "target_node_id": run_metadata.get("target_node_id"),
+                "evaluation": evaluation,
+            },
+            "error": error,
+            "events_count": 0,
+            "prompt_dispatches": 0,
+            "prompt_successes": 0,
+            "prompt_failures": 0,
+            "prompt_inflight": 0,
+            "prompt_by_key": {},
+            "stages": {"execute_cdg": stage},
+            "stage_order": ["execute_cdg"],
+            "inflight_prompts": {},
+        })
+    rows.sort(key=lambda row: float(row.get("last_update_at", 0.0)), reverse=True)
+    return rows[: max(1, limit)]
+
+
+def _get_cdg_execution_run(run_id: str) -> dict[str, Any] | None:
+    return next(
+        (row for row in _load_cdg_execution_runs(500) if row["run_id"] == run_id),
+        None,
+    )
+
+
 @router.get("/api/dashboard/runs")
 async def list_dashboard_runs(
     limit: int = Query(50, ge=1, le=500),
@@ -43,13 +128,13 @@ async def list_dashboard_runs(
     wanted = state.strip().lower()
     status_filter = wanted if wanted != "all" else None
     pg_runs = await load_runs_from_store(limit=max(limit * 3, 100), status=status_filter)
-    file_runs = (
-        load_persisted_runs(config.telemetry_runs_dir, limit=max(limit * 3, 100))
-        if pg_runs is None
-        else []
+    source_limit = max(limit * 3, 100)
+    file_runs = load_persisted_runs(config.telemetry_runs_dir, limit=source_limit)
+    rows = _merge_runs(
+        (pg_runs or []) + file_runs + _load_cdg_execution_runs(source_limit),
+        list_runtime_runs(),
     )
-    rows = _merge_runs(pg_runs or file_runs, list_runtime_runs())
-    if wanted != "all" and pg_runs is None:
+    if wanted != "all":
         rows = [r for r in rows if str(r.get("status", "")).lower() == wanted]
     now = time.time()
     rows = [
@@ -72,6 +157,8 @@ async def get_dashboard_run(run_id: str) -> dict[str, Any]:
         row = await load_run_from_store(run_id)
     if row is None:
         row = get_persisted_run(config.telemetry_runs_dir, run_id)
+    if row is None:
+        row = _get_cdg_execution_run(run_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return _decorate_dashboard_run(

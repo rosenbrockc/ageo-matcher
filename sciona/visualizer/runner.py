@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-import ast
 import dataclasses
 import inspect
 import json
 import logging
-import os
 from pathlib import Path
-import sys
 import time
-import uuid
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from sciona.architect.models import AlgorithmicNode, ConceptType, DependencyEdge, NodeStatus
-from sciona.ghost.registry import REGISTRY, get_witness, list_registered
-from sciona.synthesizer.ghost_sim import _ensure_atoms_imported, _extract_atom_name
+from sciona.architect.models import AlgorithmicNode, DependencyEdge, NodeStatus
+from sciona.ghost.registry import REGISTRY
+from sciona.synthesizer.ghost_sim import _ensure_atoms_imported
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +425,8 @@ class CDGExecutionSession:
         user_inputs: Dict[str, Any],
         target_node_id: Optional[str] = None,
         cdg: Any | None = None,
+        execution_id: str = "",
+        version_id: str = "",
     ) -> Dict[str, Any]:
         """Runs the CDG execution pipeline, caching intermediate states."""
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -457,12 +455,13 @@ class CDGExecutionSession:
                 "repo": self.repo,
                 "timestamp": time.time(),
                 "target_node_id": target_node_id,
+                "execution_id": execution_id,
+                "version_id": version_id,
                 "status": "running"
             }, f)
             
         # Ensure atoms are imported and witnesses registered
         _ensure_atoms_imported()
-        registered = set(list_registered() if callable(globals().get("list_registered")) else REGISTRY.keys())
         
         # 2. Check grounding of all atomic leaf nodes
         ungrounded = []
@@ -473,13 +472,15 @@ class CDGExecutionSession:
                     ungrounded.append(f"{n.name} (primitive: '{mp}')")
                     
         if ungrounded:
-            error_msg = f"CDG is not fully grounded! Missing verified matched primitives in registry for:\n- " + "\n- ".join(ungrounded)
+            error_msg = "CDG is not fully grounded! Missing verified matched primitives in registry for:\n- " + "\n- ".join(ungrounded)
             # Update metadata to failed
             with open(meta_file, "w") as f:
                 json.dump({
                     "run_id": self.run_id,
                     "repo": self.repo,
                     "timestamp": time.time(),
+                    "execution_id": execution_id,
+                    "version_id": version_id,
                     "status": "failed",
                     "error": error_msg
                 }, f)
@@ -498,6 +499,7 @@ class CDGExecutionSession:
         # Stores mapping of "node_id/output_name" -> runtime value
         state: Dict[str, Any] = {}
         trace = []
+        from sciona.telemetry import log_event
         
         # Load user inputs into state
         # Root inputs are mapped as "inputs/port_name" -> parsed value
@@ -505,10 +507,28 @@ class CDGExecutionSession:
             state[f"inputs/{key}"] = val
             
         # 4. Sequential execution loop
-        for node in exec_nodes:
+        for node_index, node in enumerate(exec_nodes):
             node_id = node.node_id
             primitive_name = node.matched_primitive
             impl = REGISTRY[primitive_name]["impl"]
+            node_started_at = time.perf_counter()
+            event_payload = {
+                "name": node.name,
+                "primitive": primitive_name,
+                "position": node_index + 1,
+                "total": len(exec_nodes),
+                "input_names": [item.name for item in node.inputs],
+                "output_names": [item.name for item in node.outputs],
+            }
+            log_event(
+                "executor",
+                "node_execution",
+                "CDG_NODE_STARTED",
+                run_id=self.run_id,
+                stage="execute_cdg",
+                node_id=node_id,
+                payload=event_payload,
+            )
             
             # Check caching: can we reuse computed outputs?
             # A supplied graph is an editable evolution snapshot. Node IDs may be
@@ -522,6 +542,16 @@ class CDGExecutionSession:
                     real_name = name[4:] if name.startswith("out_") else name
                     state[f"{node_id}/{real_name}"] = val
                 trace.append({"node_id": node_id, "name": node.name, "cached": True})
+                log_event(
+                    "executor",
+                    "node_execution",
+                    "CDG_NODE_CACHE_HIT",
+                    run_id=self.run_id,
+                    stage="execute_cdg",
+                    node_id=node_id,
+                    duration_ms=(time.perf_counter() - node_started_at) * 1000.0,
+                    payload={**event_payload, "cached": True},
+                )
                 continue
                 
             # Gather inputs
@@ -549,7 +579,22 @@ class CDGExecutionSession:
                         args[param_name] = parse_input_value(state[root_key], inp.type_desc)
                     elif inp.required:
                         # Missing mandatory input
-                        raise KeyError(f"Missing mandatory input '{param_name}' for node '{node.name}'.")
+                        error = KeyError(f"Missing mandatory input '{param_name}' for node '{node.name}'.")
+                        log_event(
+                            "executor",
+                            "node_execution",
+                            "CDG_NODE_FAILED",
+                            run_id=self.run_id,
+                            stage="execute_cdg",
+                            node_id=node_id,
+                            duration_ms=(time.perf_counter() - node_started_at) * 1000.0,
+                            payload={
+                                **event_payload,
+                                "error": str(error),
+                                "error_type": type(error).__name__,
+                            },
+                        )
+                        raise error
                         
             # Reconstruct parameters (e.g. dicts to dataclasses)
             func_args = reconstruct_parameters(impl, args)
@@ -565,6 +610,20 @@ class CDGExecutionSession:
                 else:
                     result = impl(**func_args)
             except Exception as e:
+                log_event(
+                    "executor",
+                    "node_execution",
+                    "CDG_NODE_FAILED",
+                    run_id=self.run_id,
+                    stage="execute_cdg",
+                    node_id=node_id,
+                    duration_ms=(time.perf_counter() - node_started_at) * 1000.0,
+                    payload={
+                        **event_payload,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
                 # Save failure status
                 with open(self.run_dir / "execution_trace.json", "w") as f:
                     json.dump(trace, f)
@@ -573,6 +632,8 @@ class CDGExecutionSession:
                         "run_id": self.run_id,
                         "repo": self.repo,
                         "timestamp": time.time(),
+                        "execution_id": execution_id,
+                        "version_id": version_id,
                         "status": "failed",
                         "error_node": node_id,
                         "error": str(e)
@@ -597,6 +658,16 @@ class CDGExecutionSession:
                 save_intermediate_value(self.run_dir, node_id, f"out_{out_name}", result)
                 
             trace.append({"node_id": node_id, "name": node.name, "cached": False})
+            log_event(
+                "executor",
+                "node_execution",
+                "CDG_NODE_COMPLETED",
+                run_id=self.run_id,
+                stage="execute_cdg",
+                node_id=node_id,
+                duration_ms=(time.perf_counter() - node_started_at) * 1000.0,
+                payload={**event_payload, "cached": False},
+            )
 
         # Save success status
         with open(self.run_dir / "execution_trace.json", "w") as f:
@@ -607,6 +678,8 @@ class CDGExecutionSession:
                 "repo": self.repo,
                 "timestamp": time.time(),
                 "target_node_id": target_node_id,
+                "execution_id": execution_id,
+                "version_id": version_id,
                 "status": "completed"
             }, f)
             

@@ -40,24 +40,33 @@
         <div class="tab-body">
           <!-- Overview tab -->
           <div id="tab-overview" class="tab-content active">
-            <div class="overview-actions">
-              <button id="btn-open-evolution" class="is-hidden" type="button">Open Graph Evolution</button>
+            <div class="overview-heading-row">
+              <h2 class="overview-run-heading">
+                <span>Run</span>
+                <a id="overview-run-link">--</a>
+              </h2>
+              <div class="overview-actions">
+                <button id="btn-open-evolution" class="is-hidden" type="button">Open Graph Evolution</button>
+              </div>
             </div>
             <div id="summary"></div>
-            <div id="meta-block">Select a run to inspect details.</div>
-            <div class="split">
-              <div class="card">
-                <h2>Stages</h2>
+            <div id="overview-sections" class="overview-sections">
+              <details id="stages-section" class="overview-disclosure overview-table-section" data-section="stages" data-default-order="8">
+                <summary><span>Stages</span><span id="stages-count" class="section-count">0</span></summary>
                 <div class="table-wrap"><table id="stages-table"></table></div>
-              </div>
-              <div class="card">
-                <h2>Prompt Aggregates</h2>
+              </details>
+              <details id="prompts-section" class="overview-disclosure overview-table-section" data-section="prompts" data-default-order="9">
+                <summary><span>Prompt Aggregates</span><span id="prompts-count" class="section-count">0</span></summary>
                 <div class="table-wrap"><table id="prompts-table"></table></div>
-              </div>
-            </div>
-            <div class="card dashboard-section-card">
-              <h2>In-Flight Dispatches</h2>
-              <div class="table-wrap"><table id="inflight-table"></table></div>
+              </details>
+              <details id="inflight-section" class="overview-disclosure overview-table-section" data-section="inflight" data-default-order="10">
+                <summary><span>In-Flight Dispatches</span><span id="inflight-count" class="section-count">0</span></summary>
+                <div class="table-wrap"><table id="inflight-table"></table></div>
+              </details>
+              <details id="raw-metadata-section" class="overview-disclosure overview-raw-section" data-section="raw" data-default-order="11" data-pin-last="true">
+                <summary><span>Raw Run Data</span><span class="section-count">JSON</span></summary>
+                <div id="meta-block">Select a run to inspect details.</div>
+              </details>
             </div>
           </div>
 
@@ -71,6 +80,10 @@
                 <option value="synthesizer">synthesizer</option>
                 <option value="llm">llm</option>
                 <option value="ingester">ingester</option>
+                <option value="executor">executor</option>
+                <option value="evaluator">evaluator</option>
+                <option value="principal">principal</option>
+                <option value="human">human</option>
               </select>
               <select id="tl-type-filter">
                 <option value="">all types</option>

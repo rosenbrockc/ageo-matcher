@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import os
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import pytest
@@ -189,6 +188,9 @@ def test_reconstruct_parameters():
 @pytest.mark.anyio
 async def test_cdg_execution_session(temp_run_dir):
     """Test execution of a simple CDG graph, caching and status writing."""
+    from sciona.telemetry import get_event_log, reset_telemetry_runtime
+
+    reset_telemetry_runtime()
     # Register dummy atom
     def add_one(x: int) -> int:
         return x + 1
@@ -251,6 +253,14 @@ async def test_cdg_execution_session(temp_run_dir):
         trace = json.loads((temp_run_dir / "run_123" / "execution_trace.json").read_text())
         assert graph["nodes"][0]["node_id"] == "n1"
         assert trace == result["trace"]
+        events = get_event_log().events_for_run("run_123")
+        assert [event.event_type for event in events] == [
+            "CDG_NODE_STARTED",
+            "CDG_NODE_COMPLETED",
+        ]
+        assert events[-1].node_id == "n1"
+        assert events[-1].duration_ms is not None
+    reset_telemetry_runtime()
 
 
 @pytest.mark.anyio
@@ -298,6 +308,9 @@ async def test_cdg_execution_session_uses_supplied_graph_snapshot(temp_run_dir):
 @pytest.mark.anyio
 async def test_cdg_execution_session_caching(temp_run_dir):
     """Verify cached outputs are reused without running implementation."""
+    from sciona.telemetry import get_event_log, reset_telemetry_runtime
+
+    reset_telemetry_runtime()
     call_count = 0
     def count_calls(x: int) -> int:
         nonlocal call_count
@@ -338,6 +351,13 @@ async def test_cdg_execution_session_caching(temp_run_dir):
         res2 = await session.execute(user_inputs={"x": 2})
         assert res2["trace"][0]["cached"] is True
         assert call_count == 1  # count_calls not executed again!
+        assert [event.event_type for event in get_event_log().events_for_run("run_cache")] == [
+            "CDG_NODE_STARTED",
+            "CDG_NODE_COMPLETED",
+            "CDG_NODE_STARTED",
+            "CDG_NODE_CACHE_HIT",
+        ]
+    reset_telemetry_runtime()
 
 
 @pytest.mark.anyio
@@ -372,13 +392,43 @@ class TestAPIEndpoints:
     @patch("sciona.visualizer.runner_api.CDGExecutionSession")
     def test_run_cdg_route(self, mock_session_cls, client):
         """Test POST /api/cdg/run route."""
+        from sciona.telemetry import get_runtime_run, reset_telemetry_runtime
+
+        reset_telemetry_runtime()
         mock_instance = AsyncMock()
-        mock_instance.execute.return_value = {"run_id": "r1", "status": "completed"}
+        mock_instance.execute.return_value = {
+            "run_id": "r1",
+            "status": "completed",
+            "trace": [{"node_id": "node-1"}],
+        }
         mock_session_cls.return_value = mock_instance
         
-        resp = client.post("/api/cdg/run?repo=biosppy&run_id=r1", json={"inputs": {"x": 5}})
+        resp = client.post(
+            "/api/cdg/run?repo=biosppy&run_id=r1",
+            json={
+                "inputs": {"x": 5},
+                "execution_id": "execution-1",
+                "version_id": "candidate-1",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["status"] == "completed"
+        telemetry = get_runtime_run("r1")
+        assert telemetry is not None
+        assert telemetry["pipeline"] == "cdg_execution"
+        assert telemetry["status"] == "completed"
+        assert telemetry["events_count"] == 2
+        assert telemetry["stages"]["execute_cdg"]["completed"] == 1
+        assert telemetry["metadata"]["execution_id"] == "execution-1"
+        assert telemetry["metadata"]["version_id"] == "candidate-1"
+        mock_instance.execute.assert_awaited_once_with(
+            {"x": 5},
+            target_node_id=None,
+            cdg=None,
+            execution_id="execution-1",
+            version_id="candidate-1",
+        )
+        reset_telemetry_runtime()
 
     def test_list_cdg_runs_route(self, temp_run_dir, client):
         """Test GET /api/cdg/runs route."""
@@ -451,6 +501,40 @@ class TestAPIEndpoints:
         assert response.status_code == 200
         assert response.json()["replayable"] is False
         assert response.json()["cdg"] is None
+
+    def test_dashboard_adapts_existing_cdg_execution(self, temp_run_dir, client, monkeypatch):
+        from sciona.telemetry import reset_telemetry_runtime
+
+        reset_telemetry_runtime()
+        monkeypatch.setenv("SCIONA_TELEMETRY_RUNS_DIR", str(temp_run_dir / "telemetry"))
+        run_dir = temp_run_dir / "historical-cdg"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run_metadata.json").write_text(json.dumps({
+            "run_id": "historical-cdg",
+            "repo": "showcase/public-waveform-rate",
+            "timestamp": 1234.5,
+            "status": "completed",
+            "loss": 0.25,
+        }))
+        (run_dir / "cdg.json").write_text(json.dumps({
+            "nodes": [{"node_id": "measure"}],
+            "edges": [],
+            "metadata": {"goal": "Measure event rate"},
+        }))
+        (run_dir / "evaluation.json").write_text(json.dumps({"loss": 0.25}))
+
+        response = client.get("/api/dashboard/runs/historical-cdg")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["pipeline"] == "cdg_execution"
+        assert payload["label"] == "Measure event rate"
+        assert payload["execution_summary"] == {
+            "mode": "deterministic",
+            "path": "visualizer_cdg",
+            "rapid_direct": False,
+        }
+        assert payload["metadata"]["evaluation"]["loss"] == 0.25
 
     def test_list_node_variables_route(self, temp_run_dir, client):
         """Test GET /api/cdg/runs/{run_id}/nodes/{node_id}/values."""

@@ -4,10 +4,19 @@
   // ─── DOM refs ───
   const runList = document.getElementById("run-list");
   const summary = document.getElementById("summary");
+  const overviewRunLink = document.getElementById("overview-run-link");
+  const overviewSections = document.getElementById("overview-sections");
   const metaBlock = document.getElementById("meta-block");
   const stagesTable = document.getElementById("stages-table");
   const promptsTable = document.getElementById("prompts-table");
   const inflightTable = document.getElementById("inflight-table");
+  const stagesSection = document.getElementById("stages-section");
+  const promptsSection = document.getElementById("prompts-section");
+  const inflightSection = document.getElementById("inflight-section");
+  const rawMetadataSection = document.getElementById("raw-metadata-section");
+  const stagesCount = document.getElementById("stages-count");
+  const promptsCount = document.getElementById("prompts-count");
+  const inflightCount = document.getElementById("inflight-count");
   const stateFilter = document.getElementById("state-filter");
   const btnRefresh = document.getElementById("btn-refresh");
   const lastRefresh = document.getElementById("last-refresh");
@@ -33,6 +42,7 @@
   let latestRuns = [];
   let activeTab = "overview";
   let activeEventSource = null;
+  let timelineRunId = "";
   let timelineOffset = 0;
   const TIMELINE_PAGE = 200;
 
@@ -81,6 +91,63 @@
     const div = document.createElement("div");
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  function hasNonZero(value) {
+    if (value == null || value === false) return false;
+    if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized || ["--", "none", "null", "false", "default", "unknown"].includes(normalized)) return false;
+      if (/^-?0+(\.0+)?(%|ms|s)?$/.test(normalized)) return false;
+      return normalized.replace(/[-:|/\s]/g, "").length > 0;
+    }
+    if (Array.isArray(value)) return value.some(hasNonZero);
+    if (typeof value === "object") return Object.values(value).some(hasNonZero);
+    return Boolean(value);
+  }
+
+  function activityScore(value) {
+    if (Array.isArray(value)) return value.reduce((total, item) => total + activityScore(item), 0);
+    if (value && typeof value === "object") {
+      return Object.values(value).reduce((total, item) => total + (hasNonZero(item) ? 1 : 0), 0);
+    }
+    return hasNonZero(value) ? 1 : 0;
+  }
+
+  function appendMetric(container, key, value, className) {
+    const metric = document.createElement("div");
+    metric.className = "metric" + (className ? " " + className : "");
+    const label = document.createElement("div");
+    label.className = "k";
+    label.textContent = key;
+    const display = document.createElement("div");
+    display.className = "v";
+    display.textContent = value;
+    metric.appendChild(label);
+    metric.appendChild(display);
+    container.appendChild(metric);
+    return display;
+  }
+
+  function updateTableDisclosure(section, countElement, count, runId) {
+    countElement.textContent = String(count);
+    section.dataset.activityScore = String(count);
+    section.classList.toggle("is-empty", count === 0);
+    if (section.dataset.runId !== runId) section.open = count > 0;
+    section.dataset.runId = runId;
+  }
+
+  function sortOverviewDisclosures() {
+    const disclosures = Array.from(overviewSections.children);
+    disclosures.sort((left, right) => {
+      if (left.dataset.pinLast === "true") return right.dataset.pinLast === "true" ? 0 : 1;
+      if (right.dataset.pinLast === "true") return -1;
+      const scoreDelta = Number(right.dataset.activityScore || 0) - Number(left.dataset.activityScore || 0);
+      if (scoreDelta) return scoreDelta;
+      return Number(left.dataset.defaultOrder || 0) - Number(right.dataset.defaultOrder || 0);
+    });
+    disclosures.forEach((detail) => overviewSections.appendChild(detail));
   }
 
   // ─── Tab switching ───
@@ -498,13 +565,145 @@
       ["started", fmtTime(run.started_at)],
       ["updated", fmtTime(run.last_update_at)]
     ];
+    const previousOpen = {};
+    const sameRun = overviewSections.dataset.runId === String(run.run_id || "");
+    if (sameRun) {
+      overviewSections.querySelectorAll("details[data-section]").forEach((detail) => {
+        previousOpen[detail.dataset.section] = detail.open;
+      });
+    }
+
+    const repo = String((run.metadata || {}).repo || "").trim();
+    overviewRunLink.textContent = run.run_id || "--";
+    if (repo && run.run_id) {
+      const runUrl = new URL("/", window.location.origin);
+      runUrl.searchParams.set("repo", repo);
+      runUrl.searchParams.set("run_id", run.run_id);
+      overviewRunLink.href = runUrl.pathname + runUrl.search;
+      overviewRunLink.removeAttribute("aria-disabled");
+      overviewRunLink.title = "Open this run in the main visualizer";
+    } else {
+      overviewRunLink.removeAttribute("href");
+      overviewRunLink.setAttribute("aria-disabled", "true");
+      overviewRunLink.title = "This telemetry run is not associated with a visualizable repository";
+    }
+
     summary.innerHTML = "";
-    metrics.forEach(([k, v]) => {
-      const m = document.createElement("div");
-      m.className = "metric";
-      m.innerHTML = `<div class="k">${k}</div><div class="v">${v}</div>`;
-      summary.appendChild(m);
+    appendMetric(summary, "Label", run.label || "--", "metric-primary metric-label");
+    const statusValue = appendMetric(summary, "Status", run.status || "--", "metric-primary");
+    statusValue.classList.add(runStatusClass(run.status || "running"));
+    appendMetric(summary, "Duration", fmtDuration(run.started_at, run.ended_at), "metric-primary");
+    appendMetric(summary, "Pipeline", run.pipeline || "--", "metric-primary");
+    appendMetric(summary, "Mode / Path", `${execution.mode || "--"} / ${execution.path || "--"}`, "metric-primary metric-mode");
+    appendMetric(summary, "Started", fmtTime(run.started_at), "metric-primary metric-time");
+    appendMetric(summary, "Updated", fmtTime(run.last_update_at), "metric-primary metric-time");
+    if (run.error) appendMetric(summary, "Error", run.error, "metric-primary metric-error");
+
+    const primaryKeys = new Set(["pipeline", "label", "status", "mode/path", "duration", "started", "updated"]);
+    const detailMetrics = metrics.filter(([key]) => !primaryKeys.has(key));
+    const groups = [
+      {
+        id: "execution",
+        title: "Execution Activity",
+        matches: (key) => ["dispatches", "inflight", "stages", "events", "stale", "success", "failures"].includes(key),
+        activity: [run.prompt_dispatches, run.prompt_inflight, stageCount, run.events_count, staleCount, run.prompt_successes, run.prompt_failures, run.error],
+      },
+      {
+        id: "architecture",
+        title: "Architecture and Graph Quality",
+        matches: (key) => /^(unresolved|blocked|blocked reason|last node|critique rejects|retry total|rewrite actions|any ports|any edges)$/.test(key),
+        activity: architect,
+      },
+      {
+        id: "discovery",
+        title: "Retrieval and Model Routing",
+        matches: (key) => /^(retrieval|architect llm|hunter llm|providers|transports)$/.test(key) || key.startsWith("hunter "),
+        activity: [
+          hunter,
+          retrieval,
+          complexity,
+          architectRouting.active_count,
+          architectRouting.suppressed_count,
+          architectRouting.custom_nonbenchmark_count,
+          hunterRouting.active_count,
+          hunterRouting.suppressed_count,
+          hunterRouting.custom_nonbenchmark_count,
+        ],
+      },
+      {
+        id: "catalog",
+        title: "Catalog Alignment",
+        matches: (key) => key.startsWith("catalog"),
+        activity: [catalog, catalogValidation],
+      },
+      {
+        id: "shared-context",
+        title: "Shared Context and Reuse",
+        matches: (key) => /^(shared ctx|ctx |template |failure reuse|failure writes)/.test(key),
+        activity: shared,
+      },
+      {
+        id: "optimization",
+        title: "Optimization and Evolution",
+        matches: (key) => key.startsWith("opt "),
+        activity: optimize,
+      },
+      {
+        id: "single-agent",
+        title: "Single-Agent Execution",
+        matches: (key) => key.startsWith("single-agent") && !key.includes("bench"),
+        activity: singleAgent,
+      },
+      {
+        id: "validation",
+        title: "Benchmarks and Release Validation",
+        matches: (key) => /^(prompt bench|prompt stable|prompt regress|prompt latency|benchmark|flow |runtime |release|single-agent bench)/.test(key),
+        activity: [benchmark, singleAgentComparison],
+      },
+    ].map((group, index) => ({
+      ...group,
+      activityScore: activityScore(group.activity),
+      originalIndex: index,
+    })).sort((left, right) =>
+      right.activityScore - left.activityScore || left.originalIndex - right.originalIndex
+    );
+
+    overviewSections.querySelectorAll("details[data-generated='true']").forEach((detail) => detail.remove());
+    groups.forEach((group) => {
+      const groupMetrics = detailMetrics.filter(([key]) => group.matches(key));
+      if (!groupMetrics.length) return;
+      const active = group.activityScore > 0;
+      const detail = document.createElement("details");
+      detail.className = "overview-disclosure" + (active ? "" : " is-empty");
+      detail.dataset.section = group.id;
+      detail.dataset.activityScore = String(group.activityScore);
+      detail.dataset.defaultOrder = String(group.originalIndex);
+      detail.dataset.generated = "true";
+      detail.open = sameRun && Object.prototype.hasOwnProperty.call(previousOpen, group.id)
+        ? previousOpen[group.id]
+        : active;
+      const heading = document.createElement("summary");
+      const title = document.createElement("span");
+      title.textContent = group.title;
+      const count = document.createElement("span");
+      count.className = "section-count";
+      count.textContent = active ? `${group.activityScore} active` : "No activity";
+      heading.appendChild(title);
+      heading.appendChild(count);
+      const grid = document.createElement("div");
+      grid.className = "overview-metric-grid";
+      groupMetrics.forEach(([key, value]) => appendMetric(grid, key, value));
+      detail.appendChild(heading);
+      detail.appendChild(grid);
+      overviewSections.appendChild(detail);
     });
+    sortOverviewDisclosures();
+    overviewSections.dataset.runId = String(run.run_id || "");
+
+    if (rawMetadataSection.dataset.runId !== String(run.run_id || "")) {
+      rawMetadataSection.open = false;
+      rawMetadataSection.dataset.runId = String(run.run_id || "");
+    }
 
     const metadata = JSON.stringify(run.metadata || {}, null, 2);
     const stale = (run.stale_stages || []).map((s) => `- ${s.stage}: ${Number(s.heartbeat_age_sec || 0).toFixed(1)}s (${s.message || ""})`).join("\n");
@@ -544,6 +743,7 @@
       return `<tr><td class="mono">${name}</td><td class="${cls}">${status}</td><td class="mono">${progress}</td><td class="mono">${fmtAgeSec(Number((row || {}).last_heartbeat_at || 0))}</td><td>${String((row || {}).message || "")}</td></tr>`;
     }).join("");
     stagesTable.innerHTML = header + "<tbody>" + body + "</tbody>";
+    updateTableDisclosure(stagesSection, stagesCount, rows.length, String(run.run_id || ""));
   }
 
   function setPrompts(run) {
@@ -555,6 +755,7 @@
       return `<tr><td class="mono">${key}</td><td class="mono">${providerModel}</td><td class="mono">${Number((row||{}).dispatched||0)}</td><td class="ok mono">${Number((row||{}).succeeded||0)}</td><td class="bad mono">${Number((row||{}).failed||0)}</td><td class="warn mono">${Number((row||{}).inflight||0)}</td><td class="mono">${Number((row||{}).avg_latency_ms||0).toFixed(1)}</td></tr>`;
     }).join("");
     promptsTable.innerHTML = header + "<tbody>" + body + "</tbody>";
+    updateTableDisclosure(promptsSection, promptsCount, prompts.length, String(run.run_id || ""));
   }
 
   function setInflight(run) {
@@ -566,6 +767,7 @@
       return `<tr><td class="mono">${String(row.dispatch_id||"").slice(0,10)}</td><td class="mono">${String(row.prompt_key||"")}</td><td class="mono">${providerModel}</td><td class="mono">${String(row.stage||"")}</td><td class="mono">${fmtAgeSec(Number(row.started_at||0))}</td></tr>`;
     }).join("");
     inflightTable.innerHTML = header + "<tbody>" + body + "</tbody>";
+    updateTableDisclosure(inflightSection, inflightCount, inflight.length, String(run.run_id || ""));
   }
 
   // ─── Timeline tab ───
@@ -608,6 +810,12 @@
       timelineList.innerHTML = '<div class="run-meta" style="padding:10px;">Select a run.</div>';
       return;
     }
+    if (timelineRunId !== selectedRunId) {
+      timelineRunId = selectedRunId;
+      tlRoundFilter.value = "";
+      tlTypeFilter.innerHTML = '<option value="">all types</option>';
+      tlSearch.value = "";
+    }
     if (!append) {
       timelineOffset = 0;
       timelineList.innerHTML = "";
@@ -616,6 +824,12 @@
       const data = await fetchEvents(selectedRunId, timelineOffset, TIMELINE_PAGE, getTimelineFilters());
       const events = data.events || [];
       events.forEach((ev) => timelineList.appendChild(renderTimelineEvent(ev)));
+      if (!append && events.length === 0) {
+        const hasFilters = Boolean(tlRoundFilter.value || tlTypeFilter.value || tlSearch.value.trim());
+        timelineList.innerHTML = `<div class="timeline-empty">${hasFilters
+          ? "No events match the current filters."
+          : "No telemetry events were recorded for this run."}</div>`;
+      }
       timelineOffset += events.length;
       tlCount.textContent = `${timelineOffset} / ${data.total} events`;
       tlMoreWrap.style.display = timelineOffset < data.total ? "" : "none";
@@ -790,7 +1004,18 @@
   async function loadSelected() {
     if (!selectedRunId) {
       if (btnOpenEvolution) btnOpenEvolution.classList.add("is-hidden");
+      overviewRunLink.textContent = "--";
+      overviewRunLink.removeAttribute("href");
+      overviewRunLink.setAttribute("aria-disabled", "true");
       summary.innerHTML = "";
+      overviewSections.querySelectorAll("details[data-generated='true']").forEach((detail) => detail.remove());
+      [stagesSection, promptsSection, inflightSection].forEach((detail) => {
+        detail.dataset.activityScore = "0";
+        detail.classList.add("is-empty");
+        detail.open = false;
+      });
+      rawMetadataSection.open = false;
+      sortOverviewDisclosures();
       metaBlock.textContent = "Select a run to inspect details.";
       stagesTable.innerHTML = "";
       promptsTable.innerHTML = "";
@@ -803,6 +1028,7 @@
       setStages(run);
       setPrompts(run);
       setInflight(run);
+      sortOverviewDisclosures();
     } catch (err) {
       metaBlock.textContent = `Failed to load run ${selectedRunId}: ${err.message}`;
     }
