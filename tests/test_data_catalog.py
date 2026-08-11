@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from sciona.data_catalog import (
     ingest_dataset_manifests,
+    resolve_data_catalog_database_url,
     validate_dataset_manifest,
 )
 
@@ -112,6 +115,30 @@ def test_ingestion_defaults_to_dry_run_without_connecting(tmp_path: Path) -> Non
             "status": "dry_run",
         }
     ]
+
+
+def test_database_resolution_reads_central_dotenv_settings(monkeypatch) -> None:
+    for name in (
+        "SCIONA_DATA_CATALOG_DATABASE_URL",
+        "SCIONA_POSTGRES_URI",
+        "SUPABASE_DATABASE_URL",
+        "POSTGRES_URI",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = SimpleNamespace(
+        data_catalog_database_url="postgresql://catalog-from-dotenv",
+        postgres_uri="postgresql://general-postgres",
+    )
+    with patch("sciona.config.AgeomConfig", return_value=settings):
+        assert resolve_data_catalog_database_url() == "postgresql://catalog-from-dotenv"
+
+
+def test_database_resolution_keeps_explicit_url_precedence() -> None:
+    assert (
+        resolve_data_catalog_database_url("postgresql://explicit-catalog")
+        == "postgresql://explicit-catalog"
+    )
 
 
 def test_data_artifact_migration_is_mirrored_and_publicly_readable() -> None:

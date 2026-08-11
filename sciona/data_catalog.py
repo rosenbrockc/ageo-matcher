@@ -29,6 +29,16 @@ def resolve_data_catalog_database_url(explicit: str | None = None) -> str:
         value = os.environ.get(name, "").strip()
         if value:
             return value
+    # AgeomConfig is the canonical settings loader and includes values from
+    # the repository's .env file. Direct os.environ reads alone silently skip
+    # those values when the visualizer is launched with plain uvicorn.
+    from sciona.config import AgeomConfig
+
+    config = AgeomConfig()
+    if config.data_catalog_database_url.strip():
+        return config.data_catalog_database_url.strip()
+    if config.postgres_uri.strip():
+        return config.postgres_uri.strip()
     return DEFAULT_LOCAL_DATABASE_URL
 
 
@@ -429,6 +439,10 @@ class HttpDataCatalog:
 def build_default_data_catalog() -> PostgresDataCatalog | HttpDataCatalog:
     """Prefer a configured keyless HTTP catalog, otherwise use Postgres directly."""
     public_url = os.environ.get("SCIONA_DATA_CATALOG_URL", "").strip()
+    if not public_url:
+        from sciona.config import AgeomConfig
+
+        public_url = AgeomConfig().data_catalog_url.strip()
     if public_url:
         return HttpDataCatalog(public_url)
     return PostgresDataCatalog()

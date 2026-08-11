@@ -440,6 +440,14 @@ class CDGExecutionSession:
             nodes = list(cdg.nodes)
             edges = list(cdg.edges)
             metadata = dict(cdg.metadata)
+
+        graph_snapshot = {
+            "nodes": [node.model_dump(mode="json") for node in nodes],
+            "edges": [edge.model_dump(mode="json") for edge in edges],
+            "metadata": metadata,
+        }
+        with open(self.run_dir / "cdg.json", "w") as f:
+            json.dump(graph_snapshot, f)
         
         # Save run metadata
         meta_file = self.run_dir / "run_metadata.json"
@@ -558,6 +566,8 @@ class CDGExecutionSession:
                     result = impl(**func_args)
             except Exception as e:
                 # Save failure status
+                with open(self.run_dir / "execution_trace.json", "w") as f:
+                    json.dump(trace, f)
                 with open(meta_file, "w") as f:
                     json.dump({
                         "run_id": self.run_id,
@@ -589,11 +599,14 @@ class CDGExecutionSession:
             trace.append({"node_id": node_id, "name": node.name, "cached": False})
 
         # Save success status
+        with open(self.run_dir / "execution_trace.json", "w") as f:
+            json.dump(trace, f)
         with open(meta_file, "w") as f:
             json.dump({
                 "run_id": self.run_id,
                 "repo": self.repo,
                 "timestamp": time.time(),
+                "target_node_id": target_node_id,
                 "status": "completed"
             }, f)
             

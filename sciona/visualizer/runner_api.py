@@ -118,13 +118,24 @@ async def evaluate_cdg_run(run_id: str, body: EvaluateRunRequest):
         manifest = await run_in_threadpool(
             lambda: DatasetManager().load_manifest(body.dataset_fqn)
         )
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             lambda: _evaluate_persisted_run(
                 run_id,
                 manifest,
                 version_id=body.version_id,
             )
         )
+        run_dir = RUNS_DIR / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "evaluation.json").write_text(json.dumps(result))
+        meta_file = run_dir / "run_metadata.json"
+        if meta_file.exists():
+            metadata = json.loads(meta_file.read_text())
+            metadata["dataset_fqn"] = result["dataset_fqn"]
+            metadata["version_id"] = result["version_id"]
+            metadata["loss"] = result["loss"]
+            meta_file.write_text(json.dumps(metadata))
+        return result
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except (KeyError, TypeError, ValueError, IndexError) as exc:
@@ -160,6 +171,34 @@ async def list_cdg_runs(
     # Sort runs newest first
     runs.sort(key=lambda r: r.get("timestamp", 0), reverse=True)
     return {"runs": runs}
+
+
+@router.get("/api/cdg/runs/{run_id}")
+async def get_cdg_run(run_id: str):
+    """Return the persisted state needed to replay a historical execution."""
+    run_dir = RUNS_DIR / run_id
+    meta_file = run_dir / "run_metadata.json"
+    if not meta_file.exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    def load_optional(name: str, default: Any = None) -> Any:
+        path = run_dir / name
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return default
+
+    metadata = load_optional("run_metadata.json", {})
+    return {
+        "run_id": run_id,
+        "metadata": metadata,
+        "cdg": load_optional("cdg.json"),
+        "trace": load_optional("execution_trace.json", []),
+        "evaluation": load_optional("evaluation.json"),
+        "replayable": (run_dir / "cdg.json").exists(),
+    }
 
 
 @router.get("/api/cdg/runs/{run_id}/existing")

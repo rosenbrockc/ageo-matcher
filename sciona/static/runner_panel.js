@@ -672,17 +672,32 @@
               '</div>';
 
             item.addEventListener("click", function () {
-              // Load historical run ID
-              activeRunId = run.run_id;
-              if (activeRunSpan) activeRunSpan.textContent = activeRunId;
-              syncUrl();
-              runHistoryBrowser.classList.remove("visible");
+              item.classList.add("loading");
+              fetch("/api/cdg/runs/" + encodeURIComponent(run.run_id))
+                .then(function (res) {
+                  if (!res.ok) {
+                    return res.json().catch(function () { return {}; }).then(function (payload) {
+                      throw new Error(payload.detail || "Unable to load run");
+                    });
+                  }
+                  return res.json();
+                })
+                .then(function (snapshot) {
+                  activeRunId = run.run_id;
+                  if (activeRunSpan) activeRunSpan.textContent = activeRunId;
+                  syncUrl();
+                  runHistoryBrowser.classList.remove("visible");
+                  hasConfiguredInputs = true;
+                  if (btnNewInputs) btnNewInputs.classList.remove("hidden");
 
-              hasConfiguredInputs = true;
-              if (btnNewInputs) btnNewInputs.classList.remove("hidden");
-
-              // Fetch which nodes have outputs and decorate
-              fetchExistingRunNodes();
+                  if (options.onHistoricalRunLoaded) options.onHistoricalRunLoaded(snapshot);
+                  if (snapshot.trace) decorateNodeStatuses(snapshot.trace);
+                  fetchExistingRunNodes();
+                })
+                .catch(function (error) {
+                  item.classList.remove("loading");
+                  historyList.innerHTML = '<div class="lineage-hint" style="color: #ff5252;">Failed to load run: ' + error.message + '</div>';
+                });
             });
 
             historyList.appendChild(item);

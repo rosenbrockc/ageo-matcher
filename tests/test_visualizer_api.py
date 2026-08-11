@@ -107,6 +107,8 @@ class TestRunEvaluation:
         assert payload["version_id"] == "candidate-1"
         assert payload["loss"] == pytest.approx(2 / 3)
         assert payload["metrics"]["n_eval_samples"] == 3
+        persisted = json.loads((tmp_path / "run-1" / "evaluation.json").read_text())
+        assert persisted == payload
 
     def test_requires_evaluation_metadata(self, client):
         with patch(

@@ -1070,6 +1070,66 @@ test("execution panel ignores stale overlapping refreshes", async () => {
   assert.equal(document.getElementById("exec-outputs-list").children.length, 1);
 });
 
+test("history selection restores the persisted run snapshot", async () => {
+  const document = createVisualizerDocument();
+  const graph = sampleGraphData();
+  const snapshot = {
+    run_id: "run-history-123",
+    metadata: { status: "completed", version_id: "refined", loss: 0.125 },
+    cdg: graph,
+    trace: [{ node_id: "child", name: "Child Step", cached: false }],
+    evaluation: { version_id: "refined", loss: 0.125, metrics: {} },
+    replayable: true,
+  };
+  const { context, fetchCalls } = createBrowserContext(document, (url) => {
+    if (url === "/api/cdg/runs?repo=ageo%2Fdemo") {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          runs: [{
+            run_id: snapshot.run_id,
+            repo: "ageo/demo",
+            timestamp: 1000,
+            status: "completed",
+          }],
+        }),
+      });
+    }
+    if (url === `/api/cdg/runs/${snapshot.run_id}`) {
+      return Promise.resolve({ ok: true, json: async () => snapshot });
+    }
+    if (url.endsWith("/existing")) {
+      return Promise.resolve({ ok: true, json: async () => ({ nodes: ["child"] }) });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+  });
+  loadScript(context, "runner_panel.js");
+  let restored = null;
+  const runner = context.window.initVisualizerRunner({
+    getCy() { return createCytoscapeStub(); },
+    getCurrentData() { return graph; },
+    detailControls: {
+      refreshExecutionTab() {},
+      getSelectedNodeId() { return null; },
+    },
+    onHistoricalRunLoaded(value) { restored = value; },
+  });
+
+  runner.setRepo("ageo/demo");
+  document.getElementById("btn-history").click();
+  await flushAsync();
+  assert.equal(document.getElementById("history-list").children.length, 1);
+
+  document.getElementById("history-list").children[0].click();
+  await flushAsync();
+
+  assert.equal(restored, snapshot);
+  assert.equal(runner.getActiveRunId(), snapshot.run_id);
+  assert.equal(document.getElementById("active-run-id").textContent, snapshot.run_id);
+  assert.equal(document.getElementById("run-history-browser").classList.contains("visible"), false);
+  assert.equal(fetchCalls.some((call) => call.url === `/api/cdg/runs/${snapshot.run_id}`), true);
+});
+
 test("guided tour advances through workflow steps and finishes cleanly", () => {
   const document = createVisualizerDocument();
   const { context } = createBrowserContext(document, () => Promise.resolve({ ok: false }));

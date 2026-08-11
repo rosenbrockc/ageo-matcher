@@ -406,6 +406,48 @@
         evolutionControls.setVersionEvaluation(versionId, evaluation, runId);
       }
     },
+    onHistoricalRunLoaded: function (snapshot) {
+      var metadata = snapshot.metadata || {};
+      var evaluation = snapshot.evaluation || null;
+      var versionId = (evaluation && evaluation.version_id) || metadata.version_id || "historical-run";
+      var statusText = document.getElementById("status-text");
+
+      if (snapshot.cdg && evolutionControls) {
+        var currentTrace = evolutionControls.getTrace();
+        var existingVersion = currentTrace && currentTrace.versions
+          ? currentTrace.versions.find(function (version) { return version.version_id === versionId; })
+          : null;
+        if (existingVersion) {
+          existingVersion.graph = snapshot.cdg;
+          existingVersion.run_id = snapshot.run_id;
+          if (evaluation) evolutionControls.setVersionEvaluation(versionId, evaluation, snapshot.run_id);
+          evolutionControls.selectVersionById(versionId);
+        } else {
+          evolutionControls.loadTrace({
+            schema_version: "1.0",
+            goal: (snapshot.cdg.metadata || {}).goal || "",
+            objective: evaluation ? evaluation.objective : "",
+            versions: [{
+              version_id: versionId,
+              label: "Historical run",
+              phase: "execution_history",
+              loss: evaluation ? evaluation.loss : null,
+              evaluation: evaluation,
+              graph: snapshot.cdg,
+              run_id: snapshot.run_id,
+              status: metadata.status || "completed"
+            }],
+            transitions: []
+          });
+        }
+      }
+
+      if (statusText) {
+        statusText.textContent = snapshot.replayable
+          ? "Loaded historical run " + snapshot.run_id
+          : "Loaded legacy run artifacts; graph and loss were not persisted for this run.";
+      }
+    },
     onExecutionComplete: function () {
       if (guidedTourControls && guidedTourControls.getActiveIndex() === 1) {
         guidedTourControls.next();

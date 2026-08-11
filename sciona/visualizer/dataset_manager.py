@@ -29,7 +29,9 @@ def _default_cache_dir() -> Path:
     configured = os.environ.get("SCIONA_DATASET_CACHE_DIR", "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path.home() / ".cache" / "sciona" / "datasets"
+    from sciona.config import AgeomConfig
+
+    return AgeomConfig().dataset_cache_dir.expanduser()
 
 
 CACHE_DIR = _default_cache_dir()
@@ -49,10 +51,19 @@ class DatasetManager:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.catalog = catalog or build_default_data_catalog()
         self.allow_synthetic_fallback = (
-            _env_flag("SCIONA_DATASET_ALLOW_SYNTHETIC_FALLBACK")
+            _env_flag(
+                "SCIONA_DATASET_ALLOW_SYNTHETIC_FALLBACK",
+                default=self._configured_synthetic_fallback(),
+            )
             if allow_synthetic_fallback is None
             else allow_synthetic_fallback
         )
+
+    @staticmethod
+    def _configured_synthetic_fallback() -> bool:
+        from sciona.config import AgeomConfig
+
+        return AgeomConfig().dataset_allow_synthetic_fallback
 
     def list_datasets(
         self,

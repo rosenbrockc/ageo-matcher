@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -60,6 +61,19 @@ def _catalog_row(source: Path, *, sha256: str | None = None) -> dict:
             }
         ],
     }
+
+
+def test_default_cache_dir_reads_central_dotenv_settings(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("SCIONA_DATASET_CACHE_DIR", raising=False)
+    settings = SimpleNamespace(
+        dataset_cache_dir=tmp_path / "dotenv-cache",
+        dataset_allow_synthetic_fallback=False,
+    )
+
+    with patch("sciona.config.AgeomConfig", return_value=settings):
+        manager = DatasetManager(catalog=FakeCatalog())
+
+    assert manager.cache_dir == tmp_path / "dotenv-cache"
 
 
 def test_listing_and_compatibility_are_catalog_backed(tmp_path: Path) -> None:

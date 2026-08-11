@@ -247,6 +247,10 @@ async def test_cdg_execution_session(temp_run_dir):
             meta = json.load(f)
             assert meta["status"] == "completed"
             assert meta["repo"] == "test_repo"
+        graph = json.loads((temp_run_dir / "run_123" / "cdg.json").read_text())
+        trace = json.loads((temp_run_dir / "run_123" / "execution_trace.json").read_text())
+        assert graph["nodes"][0]["node_id"] == "n1"
+        assert trace == result["trace"]
 
 
 @pytest.mark.anyio
@@ -406,6 +410,47 @@ class TestAPIEndpoints:
         resp = client.get("/api/cdg/runs/run123/existing")
         assert resp.status_code == 200
         assert resp.json()["nodes"] == ["node_a"]
+
+    def test_get_cdg_run_returns_replay_snapshot(self, temp_run_dir, client):
+        run_dir = temp_run_dir / "run-replay"
+        run_dir.mkdir(parents=True)
+        metadata = {
+            "run_id": "run-replay",
+            "repo": "biosppy",
+            "timestamp": 1000.0,
+            "status": "completed",
+            "loss": 0.25,
+        }
+        graph = {"nodes": [{"node_id": "detect"}], "edges": [], "metadata": {"goal": "Detect"}}
+        trace = [{"node_id": "detect", "name": "Detect", "cached": False}]
+        evaluation = {"version_id": "refined", "loss": 0.25, "metrics": {}}
+        (run_dir / "run_metadata.json").write_text(json.dumps(metadata))
+        (run_dir / "cdg.json").write_text(json.dumps(graph))
+        (run_dir / "execution_trace.json").write_text(json.dumps(trace))
+        (run_dir / "evaluation.json").write_text(json.dumps(evaluation))
+
+        response = client.get("/api/cdg/runs/run-replay")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "run_id": "run-replay",
+            "metadata": metadata,
+            "cdg": graph,
+            "trace": trace,
+            "evaluation": evaluation,
+            "replayable": True,
+        }
+
+    def test_get_cdg_run_supports_legacy_artifacts(self, temp_run_dir, client):
+        run_dir = temp_run_dir / "legacy-run"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run_metadata.json").write_text(json.dumps({"run_id": "legacy-run"}))
+
+        response = client.get("/api/cdg/runs/legacy-run")
+
+        assert response.status_code == 200
+        assert response.json()["replayable"] is False
+        assert response.json()["cdg"] is None
 
     def test_list_node_variables_route(self, temp_run_dir, client):
         """Test GET /api/cdg/runs/{run_id}/nodes/{node_id}/values."""
