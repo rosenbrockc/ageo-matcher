@@ -115,8 +115,18 @@
     <select id="compare-left-select"><option value="">Select left CDG...</option></select>
     <span class="compare-vs">vs</span>
     <select id="compare-right-select"><option value="">Select right CDG...</option></select>
+    <div id="compare-diff-summary" class="compare-diff-summary hidden" aria-label="Graph difference legend">
+      <span class="compare-diff-item is-common"><i></i>Common <strong id="compare-common-count">0</strong></span>
+      <span class="compare-diff-item is-added"><i></i>Added <strong id="compare-added-count">0</strong></span>
+      <span class="compare-diff-item is-removed"><i></i>Removed <strong id="compare-removed-count">0</strong></span>
+      <span class="compare-diff-item is-changed"><i></i>Changed <strong id="compare-changed-count">0</strong></span>
+    </div>
     <span id="compare-score"></span>
     <button id="btn-compare-close">Exit Compare</button>
+  </div>
+  <div id="compare-hover-row" class="hidden" role="status" aria-live="polite">
+    <span class="compare-hover-label">Node detail</span>
+    <span id="compare-node-name">Hover a node to see its comparison summary.</span>
   </div>
 
   <!-- Main area -->
@@ -413,6 +423,40 @@
       <div class="iso-modal-actions">
         <button id="evolution-dag-close" class="iso-modal-btn" type="button">Close</button>
         <button id="evolution-dag-select" class="iso-modal-btn iso-modal-btn-primary" type="button" disabled>Use as branch point</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="compare-diff-modal" class="iso-modal hidden" role="dialog" aria-modal="true" aria-labelledby="compare-diff-title">
+    <div class="iso-modal-backdrop"></div>
+    <div class="iso-modal-content compare-diff-modal-content">
+      <div class="compare-diff-modal-header">
+        <div>
+          <span id="compare-diff-state" class="compare-diff-state">Changed</span>
+          <h4 id="compare-diff-title">Node comparison</h4>
+          <p id="compare-diff-subtitle"></p>
+        </div>
+        <button id="compare-diff-close" class="icon-button" type="button" title="Close comparison details" aria-label="Close comparison details"><i data-lucide="x"></i></button>
+      </div>
+      <div id="compare-diff-tabs" class="compare-diff-tabs" role="tablist" aria-label="Node comparison views">
+        <button type="button" class="active" role="tab" aria-selected="true" data-compare-tab="details">Details</button>
+        <button type="button" role="tab" aria-selected="false" data-compare-tab="inputs">Inputs</button>
+        <button type="button" role="tab" aria-selected="false" data-compare-tab="outputs">Outputs</button>
+      </div>
+      <div id="compare-tab-details" class="compare-tab-panel active" role="tabpanel">
+        <div class="compare-diff-table-wrap">
+          <table class="compare-diff-table">
+            <thead><tr><th>Field</th><th>Left graph</th><th>Right graph</th></tr></thead>
+            <tbody id="compare-diff-fields"></tbody>
+          </table>
+        </div>
+        <p class="compare-topology-note">Connection rows provide topology context. They do not currently determine node change status.</p>
+      </div>
+      <div id="compare-tab-inputs" class="compare-tab-panel" role="tabpanel">
+        <div id="compare-input-visuals" class="compare-value-visuals"></div>
+      </div>
+      <div id="compare-tab-outputs" class="compare-tab-panel" role="tabpanel">
+        <div id="compare-output-visuals" class="compare-value-visuals"></div>
       </div>
     </div>
   </div>

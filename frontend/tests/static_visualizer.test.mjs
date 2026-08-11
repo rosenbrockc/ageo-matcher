@@ -191,6 +191,10 @@ class FakeElement {
     this.focused = true;
   }
 
+  getContext() {
+    return {};
+  }
+
   setAttribute(name, value) {
     const normalized = String(value);
     this.attributes[name] = normalized;
@@ -296,7 +300,26 @@ function createVisualizerDocument() {
     "compare-left-select",
     "compare-right-select",
     "compare-score",
+    "compare-diff-summary",
+    "compare-common-count",
+    "compare-added-count",
+    "compare-removed-count",
+    "compare-changed-count",
+    "compare-hover-row",
+    "compare-node-name",
     "btn-compare-close",
+    "compare-diff-modal",
+    "compare-diff-state",
+    "compare-diff-title",
+    "compare-diff-subtitle",
+    "compare-diff-fields",
+    "compare-diff-close",
+    "compare-diff-tabs",
+    "compare-tab-details",
+    "compare-tab-inputs",
+    "compare-tab-outputs",
+    "compare-input-visuals",
+    "compare-output-visuals",
     "detail-panel",
     "detail-name",
     "btn-find-iso",
@@ -413,6 +436,20 @@ function createVisualizerDocument() {
   compareLeftSelect.tagName = "SELECT";
   const compareRightSelect = document.getElementById("compare-right-select");
   compareRightSelect.tagName = "SELECT";
+  document.getElementById("compare-diff-summary").classList.add("hidden");
+  document.getElementById("compare-hover-row").classList.add("hidden");
+  const compareDiffModal = document.getElementById("compare-diff-modal");
+  compareDiffModal.classList.add("hidden");
+  addElement(document, "div", "", compareDiffModal, { classes: ["iso-modal-backdrop"] });
+  const compareDiffTabs = document.getElementById("compare-diff-tabs");
+  ["details", "inputs", "outputs"].forEach((name, index) => {
+    addElement(document, "button", "", compareDiffTabs, {
+      classes: index === 0 ? ["active"] : [],
+      attributes: { "data-compare-tab": name, "aria-selected": index === 0 ? "true" : "false" },
+    });
+    const panel = document.getElementById(`compare-tab-${name}`);
+    if (index === 0) panel.classList.add("active");
+  });
 
   const fileInput = document.getElementById("file-input");
   fileInput.tagName = "INPUT";
@@ -752,6 +789,148 @@ test("graph_styles returns layouts and renders a legend", () => {
   const legendContent = document.getElementById("legend-content");
   assert.equal(legendContent.children.length > 0, true);
   assert.equal(legendContent.children[0].textContent, "Color = Concept Type Family");
+});
+
+test("compare mode keeps open evolution versions when the catalog browser is unavailable", async () => {
+  const document = createVisualizerDocument();
+  const { context, fetchCalls } = createBrowserContext(document, () => Promise.resolve({
+    ok: false,
+    status: 503,
+    json: async () => ({ detail: "Memgraph unavailable" }),
+  }));
+  loadScript(context, "compare_mode.js");
+  const graph = sampleGraphData();
+  const refinedGraph = JSON.parse(JSON.stringify(graph));
+  refinedGraph.nodes[1].matched_primitive = "provider.refined";
+  const compare = context.window.initVisualizerCompare({
+    cyContainer: document.getElementById("cy-container"),
+    detailPanel: document.getElementById("detail-panel"),
+    getNodeColors() { return { bg: "#fff", border: "#777", text: "#111" }; },
+    getCytoscapeStyle() { return []; },
+    statusShapes: {},
+    getLocalComparands() {
+      return [
+        { key: "version:initial", label: "Initial match (2 nodes)", graph },
+        { key: "version:refined", label: "Refinement (2 nodes)", graph: refinedGraph },
+      ];
+    },
+  });
+
+  document.getElementById("btn-compare").click();
+  await flushAsync();
+
+  const left = document.getElementById("compare-left-select");
+  const right = document.getElementById("compare-right-select");
+  assert.equal(left.options.length, 3);
+  assert.equal(right.options.length, 3);
+  assert.equal(left.value, "version:initial");
+  assert.equal(right.value, "version:refined");
+  assert.equal(document.getElementById("compare-hover-row").classList.contains("hidden"), false);
+  assert.equal(document.getElementById("compare-node-name").textContent,
+    "Hover a node to see its comparison summary.");
+  assert.equal(left.options[1].textContent, "Initial match (2 nodes)");
+  assert.equal(document.getElementById("compare-score").textContent, "Type similarity 0.000");
+
+  left.value = "version:initial";
+  left.dispatchEvent("change");
+  right.value = "version:refined";
+  right.dispatchEvent("change");
+  await flushAsync();
+
+  assert.equal(document.getElementById("compare-score").textContent, "Type similarity 0.000");
+  assert.equal(document.getElementById("compare-common-count").textContent, "1");
+  assert.equal(document.getElementById("compare-changed-count").textContent, "1");
+  compare.openNodeDiff("child");
+  assert.equal(document.getElementById("compare-diff-modal").classList.contains("hidden"), false);
+  assert.equal(document.getElementById("compare-diff-state").textContent, "Changed");
+  assert.equal(document.getElementById("compare-diff-subtitle").textContent, "Changed fields: Matched Primitive");
+  assert.equal(document.getElementById("compare-diff-fields").children.length, 10);
+  document.getElementById("compare-diff-tabs").querySelector('[data-compare-tab="inputs"]').click();
+  await flushAsync();
+  assert.equal(document.getElementById("compare-tab-inputs").classList.contains("active"), true);
+  assert.equal(document.getElementById("compare-input-visuals").children[0].textContent,
+    "Execute both graph versions to compare persisted inputs.");
+  document.getElementById("compare-diff-close").click();
+  assert.equal(document.getElementById("compare-diff-modal").classList.contains("hidden"), true);
+  assert.deepEqual(fetchCalls.map((call) => call.url), ["/api/cdgs"]);
+});
+
+test("compare mode classifies structural node changes and shortens only long labels", () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: false }));
+  loadScript(context, "compare_mode.js");
+  const left = sampleGraphData();
+  const right = JSON.parse(JSON.stringify(left));
+  right.nodes[1].matched_primitive = "provider.changed";
+  right.nodes.push({
+    node_id: "added",
+    name: "Condition the sampled input waveform before detection",
+    concept_type: "filtering",
+    status: "atomic",
+  });
+  left.nodes.push({ node_id: "removed", name: "Old stage", concept_type: "custom", status: "atomic" });
+
+  const diff = context.window.classifyVisualizerGraphDiff(left, right);
+  const childDetail = context.window.describeVisualizerNodeDiff(left, right, "child");
+  assert.deepEqual(Array.from(diff.common), ["root"]);
+  assert.deepEqual(Array.from(diff.changed), ["child"]);
+  assert.deepEqual(Array.from(diff.added), ["added"]);
+  assert.deepEqual(Array.from(diff.removed), ["removed"]);
+  assert.deepEqual(Array.from(childDetail.changedFields), ["matched_primitive"]);
+  assert.equal(context.window.conciseVisualizerNodeLabel("Detect Recurring Events"), "Detect Recurring Events");
+  assert.equal(context.window.conciseVisualizerNodeLabel(right.nodes[2].name), "Condition the ... detection");
+});
+
+test("compare modal overlays persisted input series from both execution versions", async () => {
+  const document = createVisualizerDocument();
+  const chartConfigs = [];
+  const { context, fetchCalls } = createBrowserContext(document, (url) => {
+    if (url === "/api/cdgs") return Promise.resolve({ ok: false, status: 503, json: async () => ({}) });
+    if (url.endsWith("/values")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ inputs: { signal: { dtype: "float64", shape: [3] } }, outputs: {} }),
+      });
+    }
+    if (url.includes("/values/in_signal/slice")) {
+      const data = url.includes("run-left") ? [1, 2, 3] : [1, 2.5, 4];
+      return Promise.resolve({ ok: true, json: async () => ({ type: "1d", data, shape: [3], dtype: "float64" }) });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+  });
+  context.window.Chart = function Chart(_context, config) {
+    chartConfigs.push(config);
+    this.destroy = function () {};
+  };
+  loadScript(context, "compare_mode.js");
+  const graph = sampleGraphData();
+  const compare = context.window.initVisualizerCompare({
+    cyContainer: document.getElementById("cy-container"),
+    detailPanel: document.getElementById("detail-panel"),
+    getNodeColors() { return { bg: "#fff", border: "#777", text: "#111" }; },
+    getCytoscapeStyle() { return []; },
+    statusShapes: {},
+    getLocalComparands() {
+      return [
+        { key: "version:left", label: "Before (2 nodes)", graph, runId: "run-left" },
+        { key: "version:right", label: "After (2 nodes)", graph, runId: "run-right" },
+      ];
+    },
+  });
+
+  document.getElementById("btn-compare").click();
+  await flushAsync();
+  compare.openNodeDiff("child");
+  document.getElementById("compare-diff-tabs").querySelector('[data-compare-tab="inputs"]').click();
+  await flushAsync();
+  await flushAsync();
+
+  assert.equal(chartConfigs.length, 1);
+  assert.deepEqual(Array.from(chartConfigs[0].data.datasets, (dataset) => dataset.label), ["Before", "After"]);
+  assert.deepEqual(Array.from(chartConfigs[0].data.datasets[0].data), [1, 2, 3]);
+  assert.deepEqual(Array.from(chartConfigs[0].data.datasets[1].data), [1, 2.5, 4]);
+  assert.equal(fetchCalls.filter((call) => call.url.endsWith("/values")).length, 2);
+  assert.equal(fetchCalls.filter((call) => call.url.includes("/values/in_signal/slice")).length, 2);
 });
 
 test("evolution workspace preserves versions and supports human rejection", () => {

@@ -564,7 +564,44 @@
     detailPanel: detailControls.getPanel(),
     getNodeColors: getNodeColors,
     getCytoscapeStyle: graphControls.getCytoscapeStyle,
-    statusShapes: STATUS_SHAPES
+    statusShapes: STATUS_SHAPES,
+    getLocalComparands: function () {
+      var trace = evolutionControls ? evolutionControls.getTrace() : null;
+      var items = [];
+      if (trace && Array.isArray(trace.versions) && trace.versions.length) {
+        items = trace.versions.map(function (version) {
+          var count = version.graph && Array.isArray(version.graph.nodes)
+            ? version.graph.nodes.length
+            : 0;
+          var loss = typeof version.loss === "number" && Number.isFinite(version.loss)
+            ? " - loss " + version.loss.toFixed(6)
+            : "";
+          var status = version.status === "rejected" ? " - rejected" : "";
+          return {
+            key: "version:" + version.version_id,
+            label: (version.label || version.version_id) + " (" + count + " nodes)" + loss + status,
+            graph: version.graph,
+            runId: version.run_id || "",
+            source: "evolution"
+          };
+        });
+      }
+      var current = graphControls ? graphControls.getCurrentData() : null;
+      var currentIsVersion = current && trace && trace.versions && trace.versions.some(function (version) {
+        return version.graph === current;
+      });
+      if (current && !currentIsVersion) {
+        var repo = current.metadata && current.metadata.repo ? current.metadata.repo : "open-graph";
+        items.unshift({
+          key: "open:" + repo,
+          label: repo + " (" + (current.nodes || []).length + " nodes)",
+          graph: current,
+          runId: runnerControls ? runnerControls.getActiveRunId() : "",
+          source: "open"
+        });
+      }
+      return items;
+    }
   });
 
   isoControls = window.initVisualizerIsomorphism({
