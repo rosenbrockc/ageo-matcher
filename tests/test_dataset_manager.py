@@ -7,8 +7,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+import zipfile
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from sciona.visualizer.dataset_manager import DatasetManager
@@ -208,3 +210,33 @@ def test_sparse_npz_loader_preserves_csr_input(tmp_path: Path) -> None:
 
     assert isinstance(loaded, csr_array)
     np.testing.assert_array_equal(loaded.toarray(), expected.toarray())
+
+
+def test_zip_csv_loader_materializes_mixed_type_table(tmp_path: Path) -> None:
+    source = tmp_path / "table.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("sample.csv", 'age;job;y\n42;engineer;yes\n31;teacher;no\n')
+    payload = source.read_bytes()
+    row = {
+        "fqn": "sciona.data.synthetic.tabular.v1",
+        "assets": [
+            {
+                "asset_path": "table.zip",
+                "byte_size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "format": "zip",
+                "storage_uri": source.as_uri(),
+                "loader_name": "pandas.read_csv:sample.csv",
+            }
+        ],
+    }
+    manager = DatasetManager(cache_dir=tmp_path / "cache", catalog=FakeCatalog([row]))
+
+    loaded = manager.load_dataset(row["fqn"])
+
+    assert isinstance(loaded, pd.DataFrame)
+    assert loaded.to_dict(orient="list") == {
+        "age": [42, 31],
+        "job": ["engineer", "teacher"],
+        "y": ["yes", "no"],
+    }

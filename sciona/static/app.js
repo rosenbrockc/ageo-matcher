@@ -198,88 +198,139 @@
     };
   }
 
-  var TUTORIAL_B_CDG = {
-    nodes: [
-      {
-        node_id: "data_prep",
-        name: "data_assembly",
-        description: "Prepares features and labels.",
-        concept_type: "data_assembly",
-        status: "atomic",
-        matched_primitive: "pandas.read_csv",
-        inputs: [],
-        outputs: [{ name: "X", type_desc: "ndarray" }],
-        depth: 1
-      },
-      {
-        node_id: "fit_est",
-        name: "fit estimator",
-        description: "model_training",
-        concept_type: "ml_model_selection",
-        status: "atomic",
-        matched_primitive: "sklearn.linear_model.LogisticRegression.fit",
-        inputs: [{ name: "X", type_desc: "ndarray" }],
-        outputs: [{ name: "model", type_desc: "estimator" }],
-        depth: 1
-      },
-      {
-        node_id: "score_val",
-        name: "score validation split",
-        description: "prediction_ensemble",
-        concept_type: "ml_model_selection",
-        status: "atomic",
-        matched_primitive: "sklearn.metrics.accuracy_score",
-        inputs: [{ name: "model", type_desc: "estimator" }],
-        outputs: [{ name: "score", type_desc: "float" }],
-        depth: 1
-      },
-      {
-        node_id: "kfold_ensemble",
-        name: "k-fold cross validated ensemble",
-        description: "Perform ensembling using K-fold CV.",
-        concept_type: "ml_model_selection",
-        status: "atomic",
-        matched_primitive: null,
-        inputs: [],
-        outputs: [],
-        depth: 1
-      },
-      {
-        node_id: "stacking_meta",
-        name: "stacking meta learner",
-        description: "Use stacking ensemble classifier.",
-        concept_type: "ml_model_selection",
-        status: "atomic",
-        matched_primitive: null,
-        inputs: [],
-        outputs: [],
-        depth: 1
+  var TABULAR_ATOMS = "sciona.atoms.ml.tabular.supervised_classification.";
+
+  function buildTabularTutorialGraph(fitPrimitive, baseline) {
+    var fitNode = baseline ? {
+      node_id: "fit",
+      name: "Fit class-prior baseline",
+      description: "Establish a deterministic empirical-prior baseline before adding model complexity.",
+      concept_type: "ml_model_selection",
+      status: "atomic",
+      matched_primitive: TABULAR_ATOMS + "fit_prior_probability",
+      inputs: [{ name: "y_train", type_desc: "NDArray[int64]" }],
+      outputs: [{ name: "class_probability", type_desc: "float" }],
+      depth: 1
+    } : {
+      node_id: "fit",
+      name: fitPrimitive.indexOf("cross_validated") !== -1 ? "Select regularization by cross-validation" : "Fit mixed-type logistic model",
+      description: fitPrimitive.indexOf("cross_validated") !== -1
+        ? "Choose regularization using stratified held-in log loss."
+        : "Impute numeric and categorical features, one-hot encode categories, and fit logistic regression.",
+      concept_type: "ml_model_selection",
+      status: "atomic",
+      matched_primitive: TABULAR_ATOMS + fitPrimitive,
+      inputs: [
+        { name: "X_train", type_desc: "DataFrame" },
+        { name: "y_train", type_desc: "NDArray[int64]" }
+      ],
+      outputs: [{ name: "model", type_desc: "estimator" }],
+      depth: 1
+    };
+    var predictNode = baseline ? {
+      node_id: "predict",
+      name: "Predict prior probabilities",
+      description: "Emit the class-prior probability for every held-out row.",
+      concept_type: "ml_model_selection",
+      status: "atomic",
+      matched_primitive: TABULAR_ATOMS + "predict_prior_probabilities",
+      inputs: [
+        { name: "class_probability", type_desc: "float" },
+        { name: "X_test", type_desc: "DataFrame" },
+        { name: "y_test", type_desc: "NDArray[int64]" }
+      ],
+      outputs: [
+        { name: "probabilities", type_desc: "NDArray[float64]" },
+        { name: "targets", type_desc: "NDArray[int64]" }
+      ],
+      depth: 1
+    } : {
+      node_id: "predict",
+      name: "Predict held-out probabilities",
+      description: "Produce positive-class probabilities and aligned held-out labels for evaluation.",
+      concept_type: "ml_model_selection",
+      status: "atomic",
+      matched_primitive: TABULAR_ATOMS + "predict_binary_probabilities",
+      inputs: [
+        { name: "model", type_desc: "estimator" },
+        { name: "X_test", type_desc: "DataFrame" },
+        { name: "y_test", type_desc: "NDArray[int64]" }
+      ],
+      outputs: [
+        { name: "probabilities", type_desc: "NDArray[float64]" },
+        { name: "targets", type_desc: "NDArray[int64]" }
+      ],
+      depth: 1
+    };
+    var fitInputEdges = baseline
+      ? [{ source_id: "split", target_id: "fit", output_name: "y_train", input_name: "y_train", source_type: "NDArray[int64]", target_type: "NDArray[int64]" }]
+      : [
+          { source_id: "split", target_id: "fit", output_name: "X_train", input_name: "X_train", source_type: "DataFrame", target_type: "DataFrame" },
+          { source_id: "split", target_id: "fit", output_name: "y_train", input_name: "y_train", source_type: "NDArray[int64]", target_type: "NDArray[int64]" }
+        ];
+    return {
+      nodes: [
+        {
+          node_id: "split",
+          name: "Stratified train/test split",
+          description: "Treat the final column as a binary target and create a reproducible held-out partition.",
+          concept_type: "data_assembly",
+          status: "atomic",
+          matched_primitive: TABULAR_ATOMS + "stratified_tabular_split",
+          inputs: [{ name: "dataset", type_desc: "DataFrame" }],
+          outputs: [
+            { name: "X_train", type_desc: "DataFrame" },
+            { name: "X_test", type_desc: "DataFrame" },
+            { name: "y_train", type_desc: "NDArray[int64]" },
+            { name: "y_test", type_desc: "NDArray[int64]" }
+          ],
+          depth: 1
+        },
+        fitNode,
+        predictNode
+      ],
+      edges: fitInputEdges.concat([
+        { source_id: "fit", target_id: "predict", output_name: baseline ? "class_probability" : "model", input_name: baseline ? "class_probability" : "model", source_type: baseline ? "float" : "estimator", target_type: baseline ? "float" : "estimator" },
+        { source_id: "split", target_id: "predict", output_name: "X_test", input_name: "X_test", source_type: "DataFrame", target_type: "DataFrame" },
+        { source_id: "split", target_id: "predict", output_name: "y_test", input_name: "y_test", source_type: "NDArray[int64]", target_type: "NDArray[int64]" }
+      ]),
+      metadata: {
+        goal: "Build and refine a deterministic mixed-type binary classifier",
+        paradigm: "ml_model_selection",
+        repo: "showcase/public-tabular-classification"
       }
-    ],
-    edges: [
-      {
-        source_id: "data_prep",
-        target_id: "fit_est",
-        output_name: "X",
-        input_name: "X",
-        source_type: "ndarray",
-        target_type: "ndarray"
-      },
-      {
-        source_id: "fit_est",
-        target_id: "score_val",
-        output_name: "model",
-        input_name: "model",
-        source_type: "estimator",
-        target_type: "estimator"
-      }
-    ],
-    metadata: {
-      goal: "Demonstrate Delta Planner ensembling quick-fixes on Tabular ML CDGs",
-      paradigm: "ml_model_selection",
-      repo: "sklearn/tabular_ml"
-    }
-  };
+    };
+  }
+
+  function buildTutorialBEvolution() {
+    var initial = buildTabularTutorialGraph("", true);
+    var expanded = buildTabularTutorialGraph("fit_one_hot_logistic", false);
+    var refined = buildTabularTutorialGraph("fit_cross_validated_logistic", false);
+    return {
+      schema_version: "1.0",
+      goal: "Build and refine a deterministic mixed-type binary classifier",
+      objective: "log_loss",
+      versions: [
+        { version_id: "tabular-initial", label: "Prior baseline", phase: "initial_match", loss: null, graph: initial },
+        { version_id: "tabular-expanded", label: "Model expansion", phase: "expansion", loss: null, graph: expanded },
+        { version_id: "tabular-refined", label: "CV refinement", phase: "refinement", loss: null, graph: refined }
+      ],
+      transitions: [
+        {
+          transition_id: "tabular-initial--tabular-expanded", source_version_id: "tabular-initial", target_version_id: "tabular-expanded",
+          operation: "mixed_type_model_expansion", status: "accepted", baseline_loss: null, candidate_loss: null,
+          loss_delta: null, rules_applied: ["add_imputation", "add_one_hot_encoding", "fit_logistic_classifier"],
+          graph_diff: { added_nodes: [], removed_nodes: [], changed_nodes: [{ node_id: "fit" }, { node_id: "predict" }], added_edges: [], removed_edges: [] }
+        },
+        {
+          transition_id: "tabular-expanded--tabular-refined", source_version_id: "tabular-expanded", target_version_id: "tabular-refined",
+          operation: "cross_validated_regularization", status: "accepted", baseline_loss: null, candidate_loss: null,
+          loss_delta: null, rules_applied: ["select_regularization_by_held_in_log_loss"],
+          graph_diff: { added_nodes: [], removed_nodes: [], changed_nodes: [{ node_id: "fit" }], added_edges: [], removed_edges: [] }
+        }
+      ]
+    };
+  }
 
   var TUTORIAL_C_CDG = {
     nodes: [
@@ -757,8 +808,10 @@
   }
   if (btnLoadTutB) {
     btnLoadTutB.addEventListener("click", function () {
-      graphControls.validateAndLoad(TUTORIAL_B_CDG);
+      activeEvolutionRunId = "";
+      evolutionControls.loadTrace(buildTutorialBEvolution());
       if (tutorialsModal) tutorialsModal.classList.add("hidden");
+      guidedTourControls.start();
     });
   }
   if (btnLoadTutC) {
@@ -802,7 +855,9 @@
     if (queryRepo === "showcase/public-waveform-rate" || queryRepo === "biosppy/ecg_mismatch") {
       evolutionControls.loadTrace(buildTutorialAEvolution());
     } else if (queryRepo === "sklearn/tabular_ml") {
-      graphControls.validateAndLoad(TUTORIAL_B_CDG);
+      evolutionControls.loadTrace(buildTutorialBEvolution());
+    } else if (queryRepo === "showcase/public-tabular-classification") {
+      evolutionControls.loadTrace(buildTutorialBEvolution());
     } else if (queryRepo === "umap/scientific_computing") {
       graphControls.validateAndLoad(TUTORIAL_C_CDG);
     } else {

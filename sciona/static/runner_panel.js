@@ -214,14 +214,14 @@
         select.className = "run-input-select";
         select.style.marginBottom = "5px";
         
-        var isArrayType = inp.type_desc.indexOf("NDArray") !== -1 || inp.type_desc.indexOf("ndarray") !== -1 || inp.type_desc.indexOf("matrix") !== -1;
+        var isArrayType = inp.type_desc.indexOf("NDArray") !== -1 || inp.type_desc.indexOf("ndarray") !== -1 || inp.type_desc.indexOf("matrix") !== -1 || inp.type_desc.indexOf("DataFrame") !== -1 || inp.type_desc.indexOf("tabular") !== -1;
         
         select.innerHTML = 
           '<option value="constant">Constant (int/float/str/bool)</option>' +
           '<option value="json">JSON Structure (tuple/list/dict)</option>' +
           '<option value="path">' + (isArrayType ? "File Path (npy/parquet/csv)" : "File Path") + '</option>' +
           '<option value="upload">File Upload (npy/parquet/csv)</option>' +
-          '<option value="curated">Curated S3 Dataset</option>';
+          '<option value="curated">Curated Dataset</option>';
 
         var fieldContainer = document.createElement("div");
         

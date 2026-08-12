@@ -356,16 +356,16 @@
         <!-- Walkthrough B -->
         <div id="tut-b" class="tutorial-pane hidden">
           <h4>Walkthrough B: Tabular Machine Learning</h4>
-          <p>This walkthrough illustrates tabular ML model selection, training, and ensembling. Learn how to resolve ungrounded estimators using the Delta Planner.</p>
+          <p>This walkthrough executes a public mixed-type classification dataset through a measured baseline, model expansion, and cross-validated refinement.</p>
           <div style="background: #f5f5f5; padding: 10px; border-left: 4px solid #43a047; margin: 10px 0;">
             <strong>Step 1: Base Pipeline</strong><br>
-            A basic estimator (e.g. simple regression or classification fit) is initially constructed. This has low validation split coverage (0.50).
+            A class-prior model establishes held-out log loss before feature-dependent modeling is introduced.
           </div>
           <div style="background: #f5f5f5; padding: 10px; border-left: 4px solid #43a047; margin: 10px 0;">
-            <strong>Step 2: Quick-Fix Ensembling</strong><br>
-            Delta Planner recommends <code>apply_kfold_ensemble</code> and <code>apply_stacking_ensemble</code>. Click "Apply" in the sidebar to expand the graph into a robust ensemble pipeline.
+            <strong>Step 2: Evidence-Driven Refinement</strong><br>
+            Mixed-type preprocessing and logistic modeling are added, then regularization is selected by stratified cross-validation. Execute the versions to compare measured loss and intermediate artifacts.
           </div>
-          <button class="log-btn" id="btn-load-tutorial-b" style="margin-top: 10px; padding: 6px 12px; background: #43a047; color: white; border: none; border-radius: 3px; cursor: pointer;">Load Tabular ML CDG Template</button>
+          <button class="log-btn" id="btn-load-tutorial-b" style="margin-top: 10px; padding: 6px 12px; background: #43a047; color: white; border: none; border-radius: 3px; cursor: pointer;">Open Tabular ML Evolution</button>
         </div>
 
         <!-- Walkthrough C -->

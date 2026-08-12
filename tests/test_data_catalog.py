@@ -180,3 +180,28 @@ def test_data_evaluation_migration_is_mirrored() -> None:
     assert matcher_sql == infra_sql
     assert "evaluation_metadata JSONB" in matcher_sql
     assert "evaluation JSONB" in matcher_sql
+
+
+def test_zip_asset_migration_is_mirrored() -> None:
+    root = Path(__file__).resolve().parents[1]
+    relative = Path(
+        "supabase/migrations/20260811000000_data_artifact_zip_format.sql"
+    )
+    matcher_sql = (root / relative).read_text(encoding="utf-8")
+    infra_sql = (root.parent / "sciona-infra" / relative).read_text(encoding="utf-8")
+
+    assert matcher_sql == infra_sql
+    assert "'zip'" in matcher_sql
+
+
+def test_public_tabular_manifest_is_valid_and_uses_output_reference() -> None:
+    root = Path(__file__).resolve().parents[1]
+    manifest = json.loads(
+        (root / "evaluations/data_catalog/uci_bank_marketing.json").read_text()
+    )
+
+    normalized = validate_dataset_manifest(manifest)
+
+    assert normalized["assets"][0]["format"] == "zip"
+    assert normalized["evaluation"]["spec"]["loss"] == "log_loss"
+    assert normalized["evaluation"]["spec"]["reference"]["value_output"] == "targets"

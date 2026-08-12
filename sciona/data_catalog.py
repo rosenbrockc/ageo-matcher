@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 DEFAULT_LOCAL_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 COMPATIBILITY_KINDS = frozenset({"example", "validated", "benchmark", "incompatible"})
 ASSET_FORMATS = frozenset(
-    {"safetensors", "onnx", "json", "jsonl", "parquet", "npy", "npz", "txt", "vocab"}
+    {"safetensors", "onnx", "json", "jsonl", "parquet", "npy", "npz", "txt", "vocab", "zip"}
 )
 
 

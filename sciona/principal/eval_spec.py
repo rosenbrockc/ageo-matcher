@@ -50,10 +50,15 @@ def compute_evaluation_payload(
     prediction_values = _as_float_array(
         _select_output(result, prediction_spec.get("value_output"))
     )
-    reference_values = _resolve_input_array(
-        flat_inputs,
-        _require_str(reference_spec.get("value_source"), "reference.value_source"),
-    )
+    if reference_spec.get("value_output") is not None:
+        reference_values = _as_float_array(
+            _select_output(result, reference_spec.get("value_output"))
+        )
+    else:
+        reference_values = _resolve_input_array(
+            flat_inputs,
+            _require_str(reference_spec.get("value_source"), "reference.value_source"),
+        )
 
     prediction_times = _resolve_prediction_times(result, flat_inputs, prediction_spec)
     reference_times = None
@@ -73,28 +78,76 @@ def compute_evaluation_payload(
     if aligned_prediction.size == 0 or aligned_reference.size == 0:
         raise ValueError("evaluation alignment produced no comparable samples")
 
+    finite = np.isfinite(aligned_prediction) & np.isfinite(aligned_reference)
+    aligned_prediction = aligned_prediction[finite]
+    aligned_reference = aligned_reference[finite]
+    if aligned_prediction.size == 0:
+        raise ValueError("evaluation contains no finite prediction/reference pairs")
+
     diff = aligned_prediction - aligned_reference
     mse = float(np.mean(diff ** 2))
     rmse = float(np.sqrt(mse))
     mae = float(np.mean(np.abs(diff)))
 
     loss_name = str(spec.get("loss", spec.get("metric", "mse"))).lower()
+    threshold = float(spec.get("classification_threshold", 0.5))
+    probabilities = np.clip(aligned_prediction, 1e-12, 1.0 - 1e-12)
+    binary_targets = aligned_reference.astype(np.int64)
+    binary_reference = bool(
+        np.all(np.isin(binary_targets, [0, 1]))
+        and np.allclose(aligned_reference, binary_targets)
+    )
+    log_loss = float("nan")
+    brier = float("nan")
+    accuracy = float("nan")
+    if binary_reference:
+        log_loss = float(
+            -np.mean(
+                binary_targets * np.log(probabilities)
+                + (1 - binary_targets) * np.log1p(-probabilities)
+            )
+        )
+        brier = float(np.mean((probabilities - binary_targets) ** 2))
+        accuracy = float(np.mean((probabilities >= threshold) == binary_targets))
+
     if loss_name == "rmse":
         loss = rmse
     elif loss_name == "mae":
         loss = mae
     elif loss_name == "mse":
         loss = mse
+    elif loss_name in {"log_loss", "binary_cross_entropy"}:
+        if not binary_reference:
+            raise ValueError("binary log loss requires reference labels encoded as 0 and 1")
+        loss = log_loss
+    elif loss_name == "brier":
+        if not binary_reference:
+            raise ValueError("Brier loss requires reference labels encoded as 0 and 1")
+        loss = brier
+    elif loss_name in {"classification_error", "error_rate"}:
+        if not binary_reference:
+            raise ValueError("classification error requires reference labels encoded as 0 and 1")
+        loss = 1.0 - accuracy
     else:
         raise ValueError(f"unsupported evaluation loss {loss_name!r}")
 
-    return {
+    metrics = {
         "mse": mse,
         "rmse": rmse,
         "mae": mae,
         "loss": loss,
         "n_eval_samples": float(aligned_prediction.size),
     }
+    if binary_reference:
+        metrics.update(
+            {
+                "log_loss": log_loss,
+                "brier": brier,
+                "accuracy": accuracy,
+                "classification_error": 1.0 - accuracy,
+            }
+        )
+    return metrics
 
 
 def _resolve_prediction_times(

@@ -65,6 +65,7 @@ def test_open_registry_pins_public_sources_and_integrity() -> None:
         "physionet-mitdb-100",
         "dimacs-rome99",
         "uci-gps-trajectories",
+        "uci-bank-marketing",
     }
     assert all(source.license_spdx for source in registry.sources)
     assert all(source.citation for source in registry.sources)

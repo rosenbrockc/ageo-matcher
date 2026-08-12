@@ -1,0 +1,63 @@
+{
+  "fqn": "sciona.data.uci.bank_marketing.sample.v1",
+  "version": "1.0.0",
+  "name": "UCI Bank Marketing sample",
+  "description": "A public mixed categorical and numeric binary-classification table for deterministic tabular pipeline evaluation.",
+  "modality": "tabular_binary_classification",
+  "media_type": "application/zip",
+  "schema": {
+    "target_position": "last",
+    "target_name": "y",
+    "feature_types": ["categorical", "integer"]
+  },
+  "shape": [4521, 17],
+  "dtype": "mixed",
+  "sampling": {
+    "partition_policy": "stratified_holdout",
+    "test_fraction": 0.25,
+    "random_state": 1729
+  },
+  "evaluation": {
+    "schema_version": "1.0",
+    "objective": "log_loss",
+    "prediction_node_id": "predict",
+    "spec": {
+      "loss": "log_loss",
+      "prediction": {"value_output": "probabilities"},
+      "reference": {"value_output": "targets"}
+    },
+    "reference_data": {}
+  },
+  "attribution": {
+    "citation": "Moro S, Rita P, Cortez P. Bank Marketing. UCI Machine Learning Repository, 2012. DOI: 10.24432/C5K306.",
+    "source": "UCI Machine Learning Repository",
+    "url": "https://archive.ics.uci.edu/dataset/222/bank+marketing"
+  },
+  "license_expression": "CC-BY-4.0",
+  "source_uri": "https://archive.ics.uci.edu/dataset/222/bank+marketing",
+  "intended_use": "Public local evaluation of mixed-type supervised tabular classification pipelines.",
+  "limitations": [
+    "A single binary-classification dataset cannot represent all tabular disciplines or regression tasks.",
+    "The smaller public sample is used to keep local tutorial execution fast."
+  ],
+  "assets": [
+    {
+      "asset_path": "bank.zip",
+      "byte_size": 579043,
+      "sha256": "99d7e8eb12401ed278b793984423915411ea8df099e1795f9fefe254f513fe5e",
+      "format": "zip",
+      "media_type": "application/zip",
+      "storage_uri": "https://archive.ics.uci.edu/ml/machine-learning-databases/00222/bank.zip",
+      "loader_name": "pandas.read_csv:bank.csv"
+    }
+  ],
+  "compatibility": [
+    {
+      "consumer_fqdn": "sciona.atoms.ml.tabular.supervised_classification.stratified_tabular_split",
+      "input_port": "dataset",
+      "kind": "validated",
+      "confidence": 1.0,
+      "evidence": {"source_id": "uci-bank-marketing", "suite": "cross-disciplinary-open-data-v1"}
+    }
+  ]
+}

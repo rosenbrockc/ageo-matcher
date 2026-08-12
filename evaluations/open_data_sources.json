@@ -65,6 +65,26 @@
         "member": "GPS Trajectory.rar",
         "required_path": "GPS Trajectory/go_track_trackspoints.csv"
       }
+    },
+    {
+      "source_id": "uci-bank-marketing",
+      "title": "UCI Bank Marketing",
+      "landing_url": "https://archive.ics.uci.edu/dataset/222/bank+marketing",
+      "license_spdx": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "citation": "Moro S, Rita P, Cortez P. Bank Marketing. UCI Machine Learning Repository, 2012. DOI: 10.24432/C5K306.",
+      "files": [
+        {
+          "path": "bank.zip",
+          "url": "https://archive.ics.uci.edu/ml/machine-learning-databases/00222/bank.zip",
+          "sha256": "99d7e8eb12401ed278b793984423915411ea8df099e1795f9fefe254f513fe5e",
+          "size_bytes": 579043
+        }
+      ],
+      "archive": {
+        "kind": "zip",
+        "required_path": "bank.csv"
+      }
     }
   ]
 }

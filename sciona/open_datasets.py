@@ -27,8 +27,8 @@ class OpenDataFile(BaseModel):
 
 
 class OpenDataArchive(BaseModel):
-    kind: Literal["zip_rar"]
-    member: str
+    kind: Literal["zip", "zip_rar"]
+    member: str = ""
     required_path: str
 
 
@@ -111,6 +111,13 @@ def _safe_extract_zip(archive: Path, destination: Path) -> None:
 def _extract_archive(source: OpenDataSource, root: Path) -> None:
     archive = source.archive
     if archive is None or (root / archive.required_path).is_file():
+        return
+    if archive.kind == "zip":
+        _safe_extract_zip(root / source.files[0].path, root)
+        if not (root / archive.required_path).is_file():
+            raise FileNotFoundError(
+                f"Archive did not produce required file {archive.required_path!r}"
+            )
         return
     if archive.kind != "zip_rar":
         raise ValueError(f"Unsupported archive type: {archive.kind}")

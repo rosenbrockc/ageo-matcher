@@ -302,6 +302,15 @@ class DatasetManager:
             return pd.read_parquet(path) if asset_format == "parquet" else pd.read_json(path, lines=True)
         if asset_format == "txt":
             return path.read_text(encoding="utf-8")
+        if asset_format == "zip" and loader_name.startswith("pandas.read_csv:"):
+            import pandas as pd
+            import zipfile
+
+            member = loader_name.split(":", 1)[1]
+            if not member:
+                raise ValueError("ZIP CSV loader requires an archive member")
+            with zipfile.ZipFile(path) as archive, archive.open(member) as stream:
+                return pd.read_csv(stream, sep=";")
         raise ValueError(f"unsupported executable dataset format: {asset_format}")
 
     @staticmethod

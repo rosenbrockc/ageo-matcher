@@ -60,3 +60,36 @@ def test_compute_evaluation_payload_sequence_aligned_without_times():
 
     assert payload["mae"] == 1.0
     assert payload["loss"] == 1.0
+
+
+def test_compute_evaluation_payload_scores_binary_output_against_output_labels():
+    result = {
+        "probabilities": np.array([0.1, 0.8, 0.6, 0.2]),
+        "targets": np.array([0, 1, 1, 0]),
+    }
+    spec = {
+        "loss": "log_loss",
+        "prediction": {"value_output": "probabilities"},
+        "reference": {"value_output": "targets"},
+    }
+
+    payload = compute_evaluation_payload(result, {}, spec)
+
+    expected = -np.mean(np.log([0.9, 0.8, 0.6, 0.8]))
+    assert payload["loss"] == expected
+    assert payload["log_loss"] == expected
+    assert payload["accuracy"] == 1.0
+    assert payload["n_eval_samples"] == 4.0
+
+
+def test_binary_log_loss_rejects_nonbinary_reference_values():
+    spec = {
+        "loss": "log_loss",
+        "prediction": {"value_output": "probabilities"},
+        "reference": {"value_output": "targets"},
+    }
+
+    with np.testing.assert_raises_regex(ValueError, "encoded as 0 and 1"):
+        compute_evaluation_payload(
+            {"probabilities": [0.2, 0.8], "targets": [1, 2]}, {}, spec
+        )
