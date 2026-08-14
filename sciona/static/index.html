@@ -19,6 +19,10 @@
   </div>
 
   <section id="evolution-workspace" class="hidden" aria-label="Graph evolution">
+    <div id="cdg-workspace-bar" class="hidden">
+      <div id="cdg-workspace-tabs" role="tablist" aria-label="CDG workspaces"></div>
+      <button id="btn-apply-workspace" type="button" class="hidden"><i data-lucide="git-merge"></i><span>Apply to parent</span></button>
+    </div>
     <div class="evolution-nav">
       <button id="btn-evolution-previous" class="evolution-icon-btn" type="button" title="Previous graph version" aria-label="Previous graph version">&#8249;</button>
       <div id="evolution-tabs" role="tablist" aria-label="Graph versions"></div>
@@ -66,8 +70,12 @@
         <label><input type="radio" name="graph-layout" value="breadthfirst"><span>Breadth-first</span></label>
       </div>
       <div class="graph-view-menu-separator"></div>
+      <div class="graph-view-menu-heading"><i data-lucide="move"></i><span>Orientation</span></div>
+      <button id="btn-rotate-left" type="button" role="menuitem"><i data-lucide="rotate-ccw"></i><span>Rotate left</span></button>
+      <button id="btn-rotate-right" type="button" role="menuitem"><i data-lucide="rotate-cw"></i><span>Rotate right</span></button>
+      <div class="graph-view-menu-separator"></div>
       <button id="btn-fit" type="button" role="menuitem"><i data-lucide="scan"></i><span>Fit</span></button>
-      <button id="btn-reset" type="button" role="menuitem"><i data-lucide="rotate-ccw"></i><span>Reset</span></button>
+      <button id="btn-reset" type="button" role="menuitem"><i data-lucide="refresh-cw"></i><span>Reset</span></button>
       <button id="btn-legend" type="button" role="menuitemcheckbox" aria-checked="false"><i data-lucide="list-tree"></i><span>Legend</span></button>
     </div>
     <button id="btn-graph-menu" type="button" title="Visualization options" aria-label="Visualization options" aria-haspopup="menu" aria-controls="graph-view-menu" aria-expanded="false"><i data-lucide="menu"></i></button>
@@ -149,6 +157,10 @@
           <button id="btn-run-node" class="iso-btn hidden" title="Run node incrementally">Run Node</button>
           <button id="btn-find-iso" class="iso-btn" title="Find similar subgraphs">Isomorphisms</button>
         </div>
+      </div>
+      <div class="detail-composition-actions" role="group" aria-label="CDG composition">
+        <button id="btn-develop-predecessor" type="button"><i data-lucide="corner-left-up"></i><span>Develop predecessor</span></button>
+        <button id="btn-develop-replacement" type="button"><i data-lucide="replace"></i><span>Develop replacement</span></button>
       </div>
       <div id="detail-tabs">
         <button class="detail-tab active" data-tab="summary">Summary</button>
@@ -280,6 +292,27 @@
         </div>
       </div>
       </div> <!-- detail-panel-inner -->
+    </div>
+  </div>
+
+  <!-- Isomorphism options modal -->
+  <div id="composition-modal" class="iso-modal hidden">
+    <div class="iso-modal-backdrop"></div>
+    <div class="iso-modal-content composition-modal-content">
+      <h4 id="composition-modal-title">Develop component CDG</h4>
+      <p id="composition-modal-summary"></p>
+      <div id="composition-input-field" class="iso-modal-field">
+        <label for="composition-input-select">Target input</label>
+        <select id="composition-input-select"></select>
+      </div>
+      <div class="iso-modal-field">
+        <label for="composition-workspace-name">Workspace name</label>
+        <input id="composition-workspace-name" type="text">
+      </div>
+      <div class="iso-modal-actions">
+        <button id="composition-modal-cancel" class="iso-modal-btn">Cancel</button>
+        <button id="composition-modal-create" class="iso-modal-btn iso-modal-btn-primary">Create workspace</button>
+      </div>
     </div>
   </div>
 
@@ -476,6 +509,7 @@
   <script src="isomorphism_panel.js"></script>
   <script src="runner_panel.js"></script>
   <script src="evolution_workspace.js"></script>
+  <script src="composition_workspace.js"></script>
   <script src="evolution_dag.js"></script>
   <script src="guided_tour.js"></script>
   <script src="app.js"></script>

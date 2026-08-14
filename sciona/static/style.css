@@ -167,6 +167,8 @@ body {
   border-radius: 6px;
   background: #fff;
   box-shadow: 0 5px 18px rgba(38, 50, 56, 0.2);
+  max-height: calc(100vh - 84px);
+  overflow-y: auto;
 }
 
 .graph-view-menu-heading,
@@ -256,6 +258,73 @@ body {
   max-width: 100vw;
   overflow: hidden;
 }
+
+#cdg-workspace-bar {
+  display: flex;
+  align-items: stretch;
+  min-height: 38px;
+  border-bottom: 1px solid #cfd8dc;
+  background: #f4f7f8;
+}
+
+#cdg-workspace-bar.hidden { display: none; }
+
+#cdg-workspace-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px 8px;
+  overflow-x: auto;
+}
+
+.cdg-workspace-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 150px;
+  max-width: 235px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #455a64;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cdg-workspace-tab.active {
+  border-color: #78909c;
+  background: #fff;
+  color: #263238;
+}
+
+.cdg-workspace-tab i { color: #607d8b; }
+.cdg-workspace-tab strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cdg-workspace-tab small { margin-left: auto; color: #78909c; font-size: 10px; }
+
+#btn-apply-workspace {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 4px auto;
+  padding: 5px 10px;
+  border: 1px solid #2e7d32;
+  border-radius: 4px;
+  background: #e8f5e9;
+  color: #1b5e20;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#btn-apply-workspace.hidden { display: none; }
+#btn-apply-workspace:disabled { cursor: default; opacity: 0.5; }
+#btn-apply-workspace svg { width: 15px; height: 15px; }
+
+.composition-modal-content { max-width: 520px; }
+.composition-modal-content p { color: #546e7a; font-size: 13px; line-height: 1.5; }
+.composition-modal-content select,
+.composition-modal-content input { width: 100%; box-sizing: border-box; padding: 7px 9px; }
 
 .evolution-nav {
   display: grid;
@@ -1583,6 +1652,31 @@ body {
 .iso-btn:hover {
   background: #d1c4e9;
 }
+
+.detail-composition-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.detail-composition-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #90a4ae;
+  border-radius: 4px;
+  background: #f8fafb;
+  color: #37474f;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.detail-composition-actions button:hover { background: #eceff1; }
+.detail-composition-actions svg { width: 15px; height: 15px; flex: 0 0 15px; }
 
 /* --- Isomorphism modal --- */
 .iso-modal {

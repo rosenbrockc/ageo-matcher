@@ -198,7 +198,7 @@
       if (name === "dagre") {
         return {
           name: "dagre",
-          rankDir: "TB",
+          rankDir: "LR",
           nodeSep: 50,
           rankSep: 80,
           animate: true,
@@ -222,7 +222,7 @@
           animationDuration: 300
         };
       }
-      return { name: "dagre", rankDir: "TB", nodeSep: 50, rankSep: 80 };
+      return { name: "dagre", rankDir: "LR", nodeSep: 50, rankSep: 80 };
     }
 
     function buildLegend() {

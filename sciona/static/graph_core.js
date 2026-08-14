@@ -10,6 +10,8 @@
     var statusText = document.getElementById("status-text");
     var btnFit = document.getElementById("btn-fit");
     var btnReset = document.getElementById("btn-reset");
+    var btnRotateLeft = document.getElementById("btn-rotate-left");
+    var btnRotateRight = document.getElementById("btn-rotate-right");
     var layoutInputs = Array.prototype.slice.call(
       document.querySelectorAll('input[name="graph-layout"]')
     );
@@ -43,6 +45,8 @@
       layoutInputs.forEach(function (input) { input.disabled = !enabled; });
       if (btnFit) btnFit.disabled = !enabled;
       if (btnReset) btnReset.disabled = !enabled;
+      if (btnRotateLeft) btnRotateLeft.disabled = !enabled;
+      if (btnRotateRight) btnRotateRight.disabled = !enabled;
     }
 
     function closeGraphViewMenu(returnFocus) {
@@ -72,6 +76,25 @@
 
     function setStatus(text) {
       if (statusText) statusText.textContent = text;
+    }
+
+    function rotateVisibleGraph(clockwise) {
+      if (!cy) return;
+      var visibleNodes = cy.nodes().not(".collapsed-hidden");
+      if (!visibleNodes.length) return;
+      var bounds = visibleNodes.boundingBox();
+      var centerX = bounds.x1 + bounds.w / 2;
+      var centerY = bounds.y1 + bounds.h / 2;
+
+      visibleNodes.positions(function (node) {
+        var position = node.position();
+        var offsetX = position.x - centerX;
+        var offsetY = position.y - centerY;
+        return clockwise
+          ? { x: centerX - offsetY, y: centerY + offsetX }
+          : { x: centerX + offsetY, y: centerY - offsetX };
+      });
+      cy.fit(visibleNodes, 30);
     }
 
     function rebuildVisibleGraph() {
@@ -439,6 +462,20 @@
     if (btnFit) {
       btnFit.addEventListener("click", function () {
         if (cy) cy.fit(undefined, 30);
+        closeGraphViewMenu(false);
+      });
+    }
+
+    if (btnRotateLeft) {
+      btnRotateLeft.addEventListener("click", function () {
+        rotateVisibleGraph(false);
+        closeGraphViewMenu(false);
+      });
+    }
+
+    if (btnRotateRight) {
+      btnRotateRight.addEventListener("click", function () {
+        rotateVisibleGraph(true);
         closeGraphViewMenu(false);
       });
     }

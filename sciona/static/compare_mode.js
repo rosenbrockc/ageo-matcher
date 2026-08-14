@@ -690,7 +690,7 @@
         container: container,
         elements: elements,
         style: compareStyles,
-        layout: { name: "dagre", rankDir: "TB", nodeSep: 34, rankSep: 58, padding: 50 },
+        layout: { name: "dagre", rankDir: "LR", nodeSep: 34, rankSep: 58, padding: 50 },
         minZoom: 0.2,
         maxZoom: 1.4,
         wheelSensitivity: 0.3

@@ -397,6 +397,7 @@
   var isoControls = null;
   var runnerControls = null;
   var evolutionControls = null;
+  var compositionControls = null;
   var evolutionDAGControls = null;
   var guidedTourControls = null;
   var activeEvolutionRunId = "";
@@ -418,6 +419,9 @@
       } else if (graphControls) {
         graphControls.validateAndLoad(data);
       }
+    },
+    onDevelopComponent: function (operation, node) {
+      if (compositionControls) compositionControls.open(operation, node);
     }
   });
 
@@ -575,6 +579,62 @@
       }
     }
   });
+
+  var loadEvolutionTrace = evolutionControls.loadTrace;
+  compositionControls = window.initCompositionWorkspace({
+    getTrace: function () { return evolutionControls.getTrace(); },
+    getActiveVersion: function () { return evolutionControls.getActiveVersion(); },
+    getRunId: function () { return runnerControls ? runnerControls.getActiveRunId() : ""; },
+    setRunId: function (runId) { if (runnerControls && runId) runnerControls.setActiveRunId(runId); },
+    getFamilyId: function () {
+      var runId = runnerControls ? runnerControls.getActiveRunId() : "";
+      return "run-" + String(runId || "local").split("--")[0].replace(/[^a-zA-Z0-9_-]/g, "-");
+    },
+    loadTrace: loadEvolutionTrace,
+    selectVersion: function (versionId) { evolutionControls.selectVersionById(versionId); },
+    loadFamily: function (familyId) {
+      return fetch("/api/cdg/workspaces/" + encodeURIComponent(familyId)).then(function (response) {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error("Workspace family could not be loaded.");
+        return response.json();
+      });
+    },
+    saveFamily: function (familyId, family) {
+      return fetch("/api/cdg/workspaces/" + encodeURIComponent(familyId), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(family)
+      }).then(function (response) {
+        if (!response.ok) throw new Error("Workspace family could not be saved.");
+        return response.json();
+      });
+    },
+    compose: function (request) {
+      return fetch("/api/cdg/compose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request)
+      }).then(function (response) {
+        if (!response.ok) {
+          return response.json().catch(function () { return {}; }).then(function (payload) {
+            throw new Error(payload.detail || "CDG composition failed.");
+          });
+        }
+        return response.json();
+      });
+    },
+    recordParentTransition: function (graph, metadata) {
+      return evolutionControls.recordTransition(graph, metadata);
+    },
+    setStatus: function (message) {
+      evolutionControls.setGuidanceStatus(message);
+    }
+  });
+
+  evolutionControls.loadTrace = function (trace) {
+    loadEvolutionTrace(trace);
+    compositionControls.resetParent(trace, trace.goal || "Primary CDG");
+  };
 
   evolutionDAGControls = window.initEvolutionDAG({
     getTrace: function () { return evolutionControls.getTrace(); },

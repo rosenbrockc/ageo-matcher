@@ -8,6 +8,8 @@
     var selectedNodeId = null;
     var executionRequestSerial = 0;
     var btnRunNode = document.getElementById("btn-run-node");
+    var btnDevelopPredecessor = document.getElementById("btn-develop-predecessor");
+    var btnDevelopReplacement = document.getElementById("btn-develop-replacement");
 
     function activateTab(target) {
       detailTabs.forEach(function (t) {
@@ -669,6 +671,19 @@
         activateTab(tab.getAttribute("data-tab"));
       });
     });
+
+    if (btnDevelopPredecessor) {
+      btnDevelopPredecessor.addEventListener("click", function () {
+        var node = options.getNodeById(selectedNodeId);
+        if (node && options.onDevelopComponent) options.onDevelopComponent("predecessor", node);
+      });
+    }
+    if (btnDevelopReplacement) {
+      btnDevelopReplacement.addEventListener("click", function () {
+        var node = options.getNodeById(selectedNodeId);
+        if (node && options.onDevelopComponent) options.onDevelopComponent("replacement", node);
+      });
+    }
 
     return {
       activateTab: activateTab,

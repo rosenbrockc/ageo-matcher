@@ -1669,3 +1669,28 @@ def test_evolution_endpoint_and_human_guidance_event(client):
     event = get_event_log().events_for_run(run_id)[-1]
     assert event.event_type == "HUMAN_GUIDANCE_RECORDED"
     assert event.payload["action"] == "refine"
+
+
+def test_workspace_family_round_trip(client, monkeypatch, tmp_path):
+    monkeypatch.setattr("sciona.visualizer.cdg.WORKSPACES_DIR", tmp_path)
+    payload = {
+        "workspaces": [{"workspace_id": "parent", "trace": {"versions": []}}],
+        "active_workspace_id": "parent",
+    }
+
+    saved = client.put("/api/cdg/workspaces/run-test", json=payload)
+    loaded = client.get("/api/cdg/workspaces/run-test")
+
+    assert saved.status_code == 200
+    assert saved.json()["workspace_count"] == 1
+    assert loaded.status_code == 200
+    assert loaded.json() == payload
+
+
+def test_workspace_family_rejects_path_traversal(client):
+    response = client.put(
+        "/api/cdg/workspaces/..%2Foutside",
+        json={"workspaces": [], "active_workspace_id": ""},
+    )
+
+    assert response.status_code in {404, 405, 422}

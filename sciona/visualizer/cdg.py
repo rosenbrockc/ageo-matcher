@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
+import json
+from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from sciona.architect.composition import CompositionError, compose_cdg
 from sciona.architect.handoff import CDGExport
 from sciona.architect.models import NodeStatus
 from sciona.principal.expansion_delta_planner import DeltaPlanningQuery, plan_expansion_delta
@@ -16,6 +19,7 @@ from sciona.synthesizer.ghost_sim import run_ghost_simulation
 from sciona.types import CandidateMatch, Declaration, MatchResult, PDGNode, Prover, VerificationResult
 
 router = APIRouter()
+WORKSPACES_DIR = Path("output/workspaces")
 
 
 @router.get("/api/cdgs")
@@ -186,6 +190,65 @@ class GuidedRefinementRequest(BaseModel):
     run_id: str = ""
     guidance: str = ""
     selected_node_id: str = ""
+
+
+class ComposeCDGRequest(BaseModel):
+    parent_cdg: CDGExport
+    child_cdg: CDGExport
+    operation: Literal["predecessor", "replacement"]
+    target_node_id: str
+    target_input_name: str = ""
+    workspace_id: str
+    version_id: str
+
+
+class WorkspaceFamilyRequest(BaseModel):
+    workspaces: list[dict[str, Any]]
+    active_workspace_id: str
+
+
+def _workspace_path(family_id: str) -> Path:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]+", family_id):
+        raise HTTPException(status_code=422, detail="Invalid workspace family identifier")
+    return WORKSPACES_DIR / f"{family_id}.json"
+
+
+@router.get("/api/cdg/workspaces/{family_id}")
+async def load_workspace_family(family_id: str) -> dict[str, Any]:
+    path = _workspace_path(family_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Workspace family not found")
+    return json.loads(path.read_text())
+
+
+@router.put("/api/cdg/workspaces/{family_id}")
+async def save_workspace_family(
+    family_id: str, body: WorkspaceFamilyRequest
+) -> dict[str, Any]:
+    path = _workspace_path(family_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = body.model_dump(mode="json")
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True))
+    temporary.replace(path)
+    return {"family_id": family_id, "workspace_count": len(body.workspaces)}
+
+
+@router.post("/api/cdg/compose")
+async def compose_cdg_route(body: ComposeCDGRequest) -> dict[str, Any]:
+    try:
+        composed = compose_cdg(
+            body.parent_cdg,
+            body.child_cdg,
+            operation=body.operation,
+            target_node_id=body.target_node_id,
+            target_input_name=body.target_input_name,
+            workspace_id=body.workspace_id,
+            version_id=body.version_id,
+        )
+    except CompositionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"updated_cdg": composed.model_dump(mode="json")}
 
 
 def build_dummy_match_results(cdg: CDGExport) -> list[MatchResult]:

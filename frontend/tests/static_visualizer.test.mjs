@@ -17,6 +17,7 @@ const localVisualizerScripts = [
   "isomorphism_panel.js",
   "runner_panel.js",
   "evolution_workspace.js",
+  "composition_workspace.js",
   "evolution_dag.js",
   "guided_tour.js",
   "app.js",
@@ -361,6 +362,8 @@ function createVisualizerDocument() {
     "run-modal-cancel",
     "run-modal-execute",
     "btn-run-node",
+    "btn-develop-predecessor",
+    "btn-develop-replacement",
     "evolution-workspace",
     "evolution-tabs",
     "evolution-operation",
@@ -405,6 +408,17 @@ function createVisualizerDocument() {
     "guided-tour-previous",
     "guided-tour-next",
     "guided-tour-close",
+    "cdg-workspace-bar",
+    "cdg-workspace-tabs",
+    "btn-apply-workspace",
+    "composition-modal",
+    "composition-modal-title",
+    "composition-modal-summary",
+    "composition-input-field",
+    "composition-input-select",
+    "composition-workspace-name",
+    "composition-modal-cancel",
+    "composition-modal-create",
   ].forEach((id) => addElement(document, "div", id, body));
 
   const graphViewControls = addElement(document, "div", "graph-view-controls", body);
@@ -418,6 +432,8 @@ function createVisualizerDocument() {
     });
   });
   addElement(document, "button", "btn-fit", graphViewMenu);
+  addElement(document, "button", "btn-rotate-left", graphViewMenu);
+  addElement(document, "button", "btn-rotate-right", graphViewMenu);
   addElement(document, "button", "btn-reset", graphViewMenu);
   addElement(document, "button", "btn-legend", graphViewMenu, {
     attributes: { "aria-checked": "false" },
@@ -673,6 +689,8 @@ test("toolbar uses accessible icon commands and moves graph controls into a floa
   });
   assert.match(html, /id="btn-graph-menu"[^>]+aria-haspopup="menu"/);
   assert.match(html, /name="graph-layout" value="dagre" checked/);
+  assert.match(html, /id="btn-rotate-left"[^>]*>[\s\S]*?data-lucide="rotate-ccw"/);
+  assert.match(html, /id="btn-rotate-right"[^>]*>[\s\S]*?data-lucide="rotate-cw"/);
   assert.match(html, /id="graph-view-menu" class="hidden" role="menu"/);
   assert.doesNotMatch(html, /id="layout-select"/);
 });
@@ -692,9 +710,13 @@ test("floating graph menu manages disabled, legend, and keyboard states", () => 
   const menu = document.getElementById("graph-view-menu");
   const menuButton = document.getElementById("btn-graph-menu");
   const fitButton = document.getElementById("btn-fit");
+  const rotateLeftButton = document.getElementById("btn-rotate-left");
+  const rotateRightButton = document.getElementById("btn-rotate-right");
   const legendButton = document.getElementById("btn-legend");
 
   assert.equal(fitButton.disabled, true);
+  assert.equal(rotateLeftButton.disabled, true);
+  assert.equal(rotateRightButton.disabled, true);
   assert.equal(document.querySelector('input[name="graph-layout"]').disabled, true);
   menuButton.click();
   assert.equal(menu.classList.contains("hidden"), false);
@@ -702,6 +724,8 @@ test("floating graph menu manages disabled, legend, and keyboard states", () => 
 
   controls.validateAndLoad(sampleGraphData());
   assert.equal(fitButton.disabled, false);
+  assert.equal(rotateLeftButton.disabled, false);
+  assert.equal(rotateRightButton.disabled, false);
   legendButton.click();
   assert.equal(document.getElementById("legend-panel").classList.contains("visible"), true);
   assert.equal(legendButton.getAttribute("aria-checked"), "true");
@@ -784,6 +808,7 @@ test("graph_styles returns layouts and renders a legend", () => {
   assert.equal(cytoscapeStyles.some((entry) => entry.selector === "node"), true);
   assert.equal(cytoscapeStyles.some((entry) => entry.selector === "edge[edgeType='dataflow']"), true);
   assert.equal(styles.getLayoutConfig("cose").name, "cose");
+  assert.equal(styles.getLayoutConfig("dagre").rankDir, "LR");
 
   styles.buildLegend();
   const legendContent = document.getElementById("legend-content");
@@ -973,6 +998,53 @@ test("evolution workspace preserves versions and supports human rejection", () =
   assert.equal(workspace.getTrace().versions.length, 2);
   assert.equal(workspace.getTrace().versions[1].status, "rejected");
   assert.equal(loaded.at(-1), initial);
+});
+
+test("composition workspace keeps child evolution separate and applies a pinned replacement", async () => {
+  const document = createVisualizerDocument();
+  const { context } = createBrowserContext(document, () => Promise.resolve({ ok: true, json: async () => ({}) }));
+  loadScript(context, "composition_workspace.js");
+  let trace = {
+    schema_version: "1.0",
+    goal: "Parent model",
+    objective: "loss",
+    versions: [{ version_id: "parent-v1", label: "Parent", graph: sampleGraphData() }],
+    transitions: [],
+  };
+  let composedRequest = null;
+  let recorded = null;
+  const controls = context.window.initCompositionWorkspace({
+    getTrace: () => trace,
+    loadTrace: (next) => { trace = next; },
+    compose: async (request) => {
+      composedRequest = request;
+      return { updated_cdg: { ...request.parent_cdg, metadata: { cdg_references: [{}] } } };
+    },
+    recordParentTransition: (graph, metadata) => { recorded = { graph, metadata }; },
+    setStatus() {},
+  });
+  controls.registerParent(trace, "Parent model");
+  controls.open("replacement", sampleGraphData().nodes[1]);
+  document.getElementById("composition-modal-create").click();
+
+  assert.equal(controls.getWorkspaces().length, 2);
+  assert.equal(controls.getActiveWorkspace().operation, "replacement");
+  assert.equal(document.getElementById("btn-apply-workspace").classList.contains("hidden"), false);
+  assert.equal(document.getElementById("btn-apply-workspace").disabled, true);
+
+  trace.versions[0].graph.nodes[0].status = "atomic";
+  trace.versions[0].graph.nodes[0].matched_primitive = "provider.replacement";
+  document.querySelector(".cdg-workspace-tab[data-workspace-id=\"parent\"]").click();
+  Array.from(document.querySelectorAll(".cdg-workspace-tab")).at(-1).click();
+  assert.equal(document.getElementById("btn-apply-workspace").disabled, false);
+
+  document.getElementById("btn-apply-workspace").click();
+  await flushAsync();
+
+  assert.equal(composedRequest.operation, "replacement");
+  assert.equal(composedRequest.target_node_id, "child");
+  assert.equal(recorded.metadata.operation, "compose_replacement");
+  assert.equal(controls.getActiveWorkspace().workspace_id, "parent");
 });
 
 test("guided refinement creates a child branch without deleting siblings", async () => {
