@@ -49,6 +49,8 @@ class SimNode:
     """Map of witness-parameter-name -> state-key."""
     output_name: str = ""
     """Key under which the witness output is stored in the state dict."""
+    output_names: List[str] = field(default_factory=list)
+    """Keys for declared multi-output witnesses, in return-value order."""
     kwargs: Dict[str, Any] = field(default_factory=dict)
     """Extra keyword arguments forwarded to the witness (e.g. t=0.5)."""
 
@@ -77,7 +79,7 @@ def simulate_graph(
     1. Looks up the witness from the registry (or ``witness_overrides``).
     2. Gathers ghost inputs from the current state.
     3. Calls the witness with those inputs.
-    4. Stores the witness output in the state under ``node.output_name``.
+    4. Stores the witness output under its declared state key or keys.
 
     If any witness raises ``ValueError``, the simulator wraps it in a
     ``PlanError`` and re-raises.
@@ -143,9 +145,33 @@ def simulate_graph(
                 detail=str(exc),
             )
 
-        # 4. Store output
-        if node.output_name:
-            state[node.output_name] = output
+        # 4. Store output. A single declared port retains the complete return
+        # value for compatibility with atoms whose one output is tuple-valued.
+        output_names = node.output_names or (
+            [node.output_name] if node.output_name else []
+        )
+        if len(output_names) == 1:
+            state[output_names[0]] = output
+        elif output_names:
+            if not isinstance(output, (tuple, list)):
+                raise PlanError(
+                    node_name=node.name,
+                    function_name=node.function_name,
+                    detail=(
+                        f"Witness declares {len(output_names)} outputs "
+                        f"{output_names} but returned {type(output).__name__}"
+                    ),
+                )
+            if len(output) != len(output_names):
+                raise PlanError(
+                    node_name=node.name,
+                    function_name=node.function_name,
+                    detail=(
+                        f"Witness declares {len(output_names)} outputs "
+                        f"{output_names} but returned {len(output)} values"
+                    ),
+                )
+            state.update(zip(output_names, output))
 
         trace.append(node.name)
 

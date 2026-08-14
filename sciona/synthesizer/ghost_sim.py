@@ -1018,9 +1018,8 @@ def run_ghost_simulation(
         # Build SimNode
         atom_name = mr.verified_match.candidate.declaration.name
 
-        output_name = ""
-        if node.outputs:
-            output_name = f"{nid}:{node.outputs[0].name}"
+        output_names = [f"{nid}:{output.name}" for output in node.outputs]
+        output_name = output_names[0] if output_names else ""
 
         sim_nodes.append(
             SimNode(
@@ -1028,6 +1027,7 @@ def run_ghost_simulation(
                 function_name=atom_name,
                 inputs=edge_inputs,
                 output_name=output_name,
+                output_names=output_names,
             )
         )
 
@@ -1212,8 +1212,11 @@ def _simulate_with_bayesian_checks(
         state.update(res.final_state)
 
         # 4. Update provenance for this node's output
-        if node.output_name:
-            provenance[node.output_name] = {
+        output_names = node.output_names or (
+            [node.output_name] if node.output_name else []
+        )
+        for output_name in output_names:
+            provenance[output_name] = {
                 "is_reparameterized": node.function_name in _REPARAM_WITNESSES,
                 "has_jacobian": node.function_name in _BIJECTOR_WITNESSES,
             }

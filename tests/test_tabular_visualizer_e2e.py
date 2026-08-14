@@ -6,6 +6,8 @@ import pytest
 
 from sciona.architect.handoff import CDGExport
 from sciona.architect.models import AlgorithmicNode, ConceptType, DependencyEdge, IOSpec, NodeStatus
+from sciona.synthesizer.ghost_sim import run_ghost_simulation
+from sciona.visualizer.cdg import build_dummy_match_results
 from sciona.visualizer.runner import CDGExecutionSession
 from sciona.visualizer.runner_api import _evaluate_persisted_run
 
@@ -78,6 +80,16 @@ def _graph(fit_primitive: str, *, baseline: bool) -> CDGExport:
         ]
     )
     return CDGExport(nodes=[split, fit, predict], edges=edges, metadata={"repo": "showcase/public-tabular-classification"})
+
+
+def test_ghost_simulation_propagates_all_tabular_split_outputs() -> None:
+    graph = _graph("fit_cross_validated_logistic", baseline=False)
+
+    report = run_ghost_simulation(graph, build_dummy_match_results(graph))
+
+    assert report.ran is True
+    assert report.passed is True
+    assert report.trace == ["split", "fit", "predict"]
 
 
 @pytest.mark.asyncio

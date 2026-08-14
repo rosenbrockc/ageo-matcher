@@ -7,6 +7,8 @@ import importlib
 
 import pytest
 
+from sciona.ghost.simulator import PlanError, SimNode, simulate_graph
+
 from sciona.architect.handoff import CDGExport
 from sciona.architect.models import (
     AlgorithmicNode,
@@ -200,6 +202,7 @@ class TestGhostSimReport:
         assert report.node_count == 0
         assert report.error == ""
 
+
     def test_ensure_atoms_imported_fallback_tries_recognized_prefixes(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -303,6 +306,69 @@ class TestGhostSimReport:
         assert backend[0] == "sciona.atoms.demo"
         assert attempted[0] == "sciona.ghost.simulator"
         assert "sciona.atoms.demo.ghost.simulator" in attempted
+
+
+class TestGhostSimulatorOutputs:
+    def test_multi_output_witness_populates_every_declared_state_key(self):
+        node = SimNode(
+            name="Split table",
+            function_name="split_table",
+            inputs={"dataset": "root:dataset"},
+            output_name="split:X_train",
+            output_names=[
+                "split:X_train",
+                "split:X_test",
+                "split:y_train",
+                "split:y_test",
+            ],
+        )
+
+        result = simulate_graph(
+            [node],
+            {"root:dataset": "table"},
+            witness_overrides={
+                "split_table": lambda dataset: (
+                    dataset,
+                    "test",
+                    "train-y",
+                    "test-y",
+                )
+            },
+        )
+
+        assert result.final_state["split:X_train"] == "table"
+        assert result.final_state["split:y_train"] == "train-y"
+        assert result.final_state["split:y_test"] == "test-y"
+
+    def test_multi_output_witness_rejects_return_arity_mismatch(self):
+        node = SimNode(
+            name="Split table",
+            function_name="split_table",
+            output_names=["split:X", "split:y"],
+        )
+
+        with pytest.raises(PlanError, match="declares 2 outputs.*returned 1 values"):
+            simulate_graph(
+                [node],
+                {},
+                witness_overrides={"split_table": lambda: ("only-one",)},
+            )
+
+    def test_single_output_preserves_tuple_valued_payload(self):
+        node = SimNode(
+            name="Tuple payload",
+            function_name="tuple_payload",
+            output_name="node:payload",
+            output_names=["node:payload"],
+        )
+
+        result = simulate_graph(
+            [node],
+            {},
+            witness_overrides={"tuple_payload": lambda: ("left", "right")},
+        )
+
+        assert result.final_state["node:payload"] == ("left", "right")
 
 
 # ---------------------------------------------------------------------------
